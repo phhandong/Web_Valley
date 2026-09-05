@@ -85,6 +85,7 @@ function handleAction(action:string,id:string,value:string){
   if(action==='selectSeed'){state.selectedSeed=id.slice(5);state.selectedTool='seed';report(result(true,'已选择'+ITEMS[id].name));ui.close();return}
   let res:Result|null=null;const count=Number(value);
   switch(action){
+    case 'resizeHud':state.settings.hudWidth=Math.max(220,Math.min(360,state.settings.hudWidth+count));res=result(true,'');break;
     case 'purchaseArea':res=purchaseArea(state,id);break;
     case 'toggleHud':state.settings.hud=!state.settings.hud;res=result(true,'');break;
     case 'setting':if(id==='volume')state.settings.volume=Math.max(0,Math.min(100,Math.round(count)));if(id==='hudWidth')state.settings.hudWidth=Math.max(220,Math.min(360,Math.round(count)));res=result(true,'');break;

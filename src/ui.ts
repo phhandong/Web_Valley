@@ -7,6 +7,7 @@ import { AREAS,LEVEL_XP,areaOpen,levelOf } from './progression';
 import type { Appearance,GameStateV2,Inventory } from './types';
 import type { FishingSession } from './fishing';
 import { FISHING_DIFFICULTIES } from './fishing';
+import { hudIcon } from './hud-icons';
 
 export const layout=`
 <div class="app-frame">
@@ -20,11 +21,20 @@ export const layout=`
       <div class="toolbar-row"><div class="toolbar" id="toolbar" aria-label="工具栏">${TOOLS.map(t=>`<button data-action="tool" data-id="${t.id}" title="${t.key} · ${t.name}" aria-label="${t.name}"><kbd>${t.key}</kbd>${iconSVG(t.mark)}<small>${t.name}</small></button>`).join('')}</div><button class="seed-picker" data-action="open" data-id="bag"><span id="selectedSeedIcon">${iconSVG('seed')}</span><span><small>当前种子</small><b id="selectedSeedName">萝卜</b></span><strong id="seedCount">5</strong></button></div>
       <footer class="world-footer"><span><kbd>WASD</kbd> 移动　<kbd>空格</kbd> 使用　<kbd>E</kbd> 互动</span><span>让日子，慢一点。<i>✧</i></span></footer>
     </section>
-    <aside class="sidebar">
-      <section class="calendar-card"><div class="card-eyebrow">溪谷历 <span id="yearText"></span></div><div class="calendar-date"><strong id="dayNumber">01</strong><div><b id="seasonName">秋月</b><span id="weatherName">晴朗</span></div><span class="weather-symbol" id="weatherSymbol">☀</span></div><div class="clock-row"><span>当地时间</span><strong id="clock">06:00</strong></div><div class="daylight-track"><i id="sunPosition"></i></div><div class="wallet"><span>你的金币</span><b><i>◉</i> <span id="gold">50</span><small>G</small></b></div><div class="pending-line">明日入账 <b id="pendingGold">0 G</b></div></section>
-      <section class="vitals-card"><div class="card-eyebrow">照顾好自己 <span>♡</span></div>${[['health','生命'],['stamina','体力'],['hunger','饱食']].map(([id,label])=>`<div class="vital ${id}"><span>${label}</span><div><i id="${id}Bar"></i></div><b id="${id}Value">100</b></div>`).join('')}<button data-action="open" data-id="bag" class="subtle-button">吃点东西，歇一歇 ↗</button></section>
-      <section class="journal-card"><button class="journal-heading" data-action="toggleJournal" aria-expanded="true"><span>农场手记</span><span>−</span></button><div id="journalBody"><p id="nextHint"></p><div id="goals"></div><button data-action="open" data-id="journal" class="subtle-button">查看成长记录 ↗</button></div></section>
-      <div class="season-note"><span>✳</span><p id="seasonNote"></p></div>
+    <aside class="almanac-dock" aria-label="农场状态">
+      <div class="almanac-controls"><span id="yearText"></span><button data-action="resizeHud" data-value="-20" aria-label="缩小状态框" title="缩小">−</button><button data-action="resizeHud" data-value="20" aria-label="放大状态框" title="放大">＋</button><button id="hudToggle" data-action="toggleHud" aria-controls="statusDetails" aria-expanded="false" title="展开状态详情">▾</button></div>
+      <section class="almanac-frame">
+        <div class="almanac-face">
+          <div id="dayDial" class="day-dial" role="img" aria-label="昼夜时段"><span class="dial-moon">${hudIcon('moon')}</span><span class="dial-sun">${hudIcon('sun')}</span><i id="sunPosition" class="dial-hand"></i><span class="dial-pivot"></span></div>
+          <div class="almanac-date"><b id="seasonName">秋月</b><strong id="dayNumber">01</strong><span>日</span></div>
+          <div class="almanac-legends"><span class="weather-legend"><i id="weatherSymbol">${hudIcon('sun')}</i><b id="weatherName">晴</b></span><span class="season-legend" id="seasonSymbol" title="当前季节">${hudIcon('leaf')}</span><button data-action="open" data-id="journal" title="等级与成长手记">${hudIcon('star')}<b id="levelText">1</b></button></div>
+          <div class="almanac-clock"><strong id="clock">06:00</strong><span id="dayPeriod">清晨</span></div>
+        </div>
+        <div class="almanac-gold" title="当前金币">${hudIcon('coin')}<strong id="gold">50</strong><span>G</span></div>
+        <div id="statusDetails" class="almanac-details" hidden><div class="almanac-pending"><span>明日入账</span><b id="pendingGold">0 G</b></div></div>
+        <div class="almanac-vitals">${[['health','生命'],['stamina','体力'],['hunger','饱食']].map(([id,label])=>`<div class="vital ${id}" title="${label}"><span class="vital-icon">${hudIcon(id)}</span><span class="vital-name">${label}</span><div><i id="${id}Bar"></i></div><b id="${id}Value">100</b></div>`).join('')}</div>
+        <button class="almanac-journal" data-action="open" data-id="journal">农场手记 <kbd>J</kbd> ↗</button>
+      </section>
     </aside>
   </div>
 </div>
@@ -43,8 +53,9 @@ export class UI {
     document.querySelector('#app')!.innerHTML=layout;
     // Keep notifications outside the canvas stacking context and its clipping area.
     document.querySelector('#app')!.append($('toast'));
-    document.querySelector('.world-topline')!.insertAdjacentHTML('afterend','<div class="compact-bar"><span id="compactStatus"></span><button id="hudToggle" data-action="toggleHud" aria-controls="statusSidebar" aria-expanded="false">展开状态 ▸</button></div>');
-    document.querySelector('.sidebar')!.id='statusSidebar';
+    const mapFrame=document.querySelector('.canvas-wrap')!;
+    mapFrame.append(document.querySelector('.almanac-dock')!,document.querySelector('.toolbar-row')!);
+    new ResizeObserver(()=>this.hud(true)).observe(mapFrame);
     $('modalBackdrop').addEventListener('click',e=>{if(e.target===$('modalBackdrop'))this.onAction('close','','')});
     document.addEventListener('change',e=>{const el=e.target as HTMLInputElement;if(el.dataset.setting)this.onAction('setting',el.dataset.setting,el.value)});
     document.addEventListener('click',event=>{
@@ -53,7 +64,6 @@ export class UI {
       if(action==='selectItem'){this.selectedItem=id;this.renderPanel();return}
       if(action==='category'){this.category=id;this.selectedItem='';this.renderPanel();return}
       if(action==='appearance'){if(this.draft)(this.draft as any)[id]=Number(value);this.renderPanel();return}
-      if(action==='toggleJournal'){const body=$('journalBody');const collapsed=body.classList.contains('collapsed');body.classList.toggle('collapsed');element.setAttribute('aria-expanded',String(collapsed));element.querySelector('span:last-child')!.textContent=collapsed?'−':'+';return}
       this.onAction(action,id,value==='quantity'?String(($<HTMLInputElement>('quantityInput')?.value??1)):value);
     });
     document.addEventListener('keydown',e=>{
@@ -70,21 +80,25 @@ export class UI {
     const signature=JSON.stringify([p.scene,p.x,p.y,p.direction,s.calendar.day,Math.floor(s.calendar.minute/10),s.calendar.weather,s.gold,s.shipping,s.legacyPending,v,s.selectedTool,s.selectedSeed,s.inventory.slots,s.stats,s.settings,s.progression]);
     if(!force&&signature===this.hudSignature)return;this.hudSignature=signature;
     const app=document.getElementById('app')!;app.dataset.scene=p.scene;app.dataset.x=String(p.x);app.dataset.y=String(p.y);app.dataset.minute=String(Math.floor(s.calendar.minute));
-    app.classList.toggle('hud-collapsed',!s.settings.hud);app.style.setProperty('--hud-width',`${s.settings.hudWidth}px`);
-    $('hudToggle').textContent=s.settings.hud?'收起状态 ◂':'展开状态 ▸';$('hudToggle').setAttribute('aria-expanded',String(s.settings.hud));
-    $('compactStatus').textContent=`${SEASON_NAMES[season]} ${seasonDay(s.calendar.day)} 日 · ${clockText(s.calendar.minute)} · ${WEATHER_NAMES[s.calendar.weather]}　${s.gold} G　Lv.${levelOf(s)}　生命 ${Math.ceil(v.health)} / 体力 ${Math.ceil(v.stamina)} / 饱食 ${Math.ceil(v.hunger)}`;
+    app.classList.toggle('hud-collapsed',!s.settings.hud);app.style.setProperty('--hud-width',`${s.settings.hudWidth}px`);app.style.setProperty('--hud-scale',String(s.settings.hudWidth/260));
+    $('hudToggle').textContent=s.settings.hud?'▴':'▾';$('hudToggle').setAttribute('aria-expanded',String(s.settings.hud));$('hudToggle').setAttribute('aria-label',s.settings.hud?'收起状态详情':'展开状态详情');$('statusDetails').hidden=!s.settings.hud;
+    document.querySelectorAll<HTMLButtonElement>('[data-action="resizeHud"]').forEach(b=>b.disabled=Number(b.dataset.value)<0?s.settings.hudWidth<=220:s.settings.hudWidth>=360);
+    const mapFrame=document.querySelector<HTMLElement>('.canvas-wrap')!,dock=document.querySelector<HTMLElement>('.almanac-dock')!;
+    mapFrame.classList.toggle('toolbar-at-top',p.y>=16);
+    // Keep the player and nearby terrain accessible when walking beneath an overlay.
+    mapFrame.classList.toggle('hud-at-left',(p.x+.5)/32*mapFrame.clientWidth>mapFrame.clientWidth-dock.offsetWidth-36&&(p.y+.5)/20*mapFrame.clientHeight<dock.offsetHeight+36);
+    $('levelText').textContent=String(levelOf(s));$('levelText').parentElement!.setAttribute('aria-label',`等级 ${levelOf(s)}，打开成长手记`);
     $('sceneName').textContent=SCENES[p.scene].name;$('sceneTagline').textContent=SCENES[p.scene].subtitle;$('yearText').textContent=`第 ${yearOf(s.calendar.day)} 年`;
-    $('dayNumber').textContent=String(seasonDay(s.calendar.day)).padStart(2,'0');$('seasonName').textContent=`${SEASON_NAMES[season]}月`;$('weatherName').textContent=WEATHER_NAMES[s.calendar.weather];$('weatherSymbol').textContent=s.calendar.weather==='sun'?(s.calendar.minute>=1080?'☾':'☀'):s.calendar.weather==='rain'?'☂':'❄';
-    $('clock').textContent=clockText(s.calendar.minute);$('sunPosition').style.left=`${(s.calendar.minute-360)/1200*94}%`;$('gold').textContent=s.gold.toLocaleString();$('pendingGold').textContent=`${s.shipping.reduce((n,i)=>n+ITEMS[i.id].sell*i.count,0)+s.legacyPending} G`;
+    const night=s.calendar.minute>=1080;
+    $('dayNumber').textContent=String(seasonDay(s.calendar.day)).padStart(2,'0');$('seasonName').textContent=`${SEASON_NAMES[season]}月`;$('weatherName').textContent=WEATHER_NAMES[s.calendar.weather];$('weatherSymbol').innerHTML=hudIcon(s.calendar.weather==='sun'?(night?'moon':'sun'):s.calendar.weather);
+    $('seasonSymbol').innerHTML=hudIcon(season==='winter'?'snow':season==='summer'?'sun':'leaf');$('seasonSymbol').title=`当前季节：${SEASON_NAMES[season]}`;
+    $('clock').textContent=clockText(s.calendar.minute);$('dayPeriod').textContent=s.calendar.minute<600?'清晨':s.calendar.minute<1020?'白昼':s.calendar.minute<1080?'黄昏':s.calendar.minute<1440?'夜晚':'深夜';$('dayDial').classList.toggle('night',night);$('dayDial').setAttribute('aria-label',`昼夜时段：${$('dayPeriod').textContent}`);$('sunPosition').style.transform=`rotate(${-150+(s.calendar.minute-360)/1200*300}deg)`;
+    $('gold').textContent=s.gold.toLocaleString();$('gold').style.fontSize=`${s.gold>=1e9?'16':s.gold>=1e6?'20':'26'}px`;$('pendingGold').textContent=`${s.shipping.reduce((n,i)=>n+ITEMS[i.id].sell*i.count,0)+s.legacyPending} G`;
     $('seasonCaption').textContent=`${SEASON_NAMES[season]}月 ${seasonDay(s.calendar.day)} 日 · ${s.calendar.weather==='rain'?'雨落在泥土上':s.calendar.weather==='snow'?'雪落无声':s.calendar.minute>=1080?'晚风与灯火':'今日宜慢生活'}`;
     for(const k of ['health','stamina','hunger'] as const){$(`${k}Value`).textContent=String(Math.ceil(v[k]));$(`${k}Bar`).style.width=`${v[k]}%`;$(`${k}Bar`).closest('.vital')?.classList.toggle('low',v[k]<20);}
     document.querySelectorAll<HTMLElement>('[data-action="tool"]').forEach(b=>{b.classList.toggle('active',b.dataset.id===s.selectedTool);b.setAttribute('aria-pressed',String(b.dataset.id===s.selectedTool))});
     $('selectedSeedName').textContent=ITEMS[`seed_${s.selectedSeed}`].name;$('selectedSeedIcon').innerHTML=itemIcon(`seed_${s.selectedSeed}`);$('seedCount').textContent=String(quantity(s.inventory,`seed_${s.selectedSeed}`));
     const near=nearby(s);const prompt=$('worldPrompt');prompt.classList.toggle('visible',!!near);prompt.setAttribute('aria-hidden',String(!near));if(near)prompt.innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
-    const goals=[['播种第一片希望',s.stats.planted,5],['收获第一篮蔬菜',s.stats.harvested,5],['钓起湖中的来信',s.stats.caught,1],['为自己做一顿饭',s.stats.cooked,1],['完成邻里的订单',s.stats.orders,1]] as [string,number,number][];
-    $('goals').innerHTML=goals.map(([name,n,max])=>`<div class="goal ${n>=max?'done':''}"><i>${n>=max?'✓':''}</i><span>${name}</span><small>${Math.min(n,max)}/${max}</small></div>`).join('');
-    $('nextHint').textContent=v.hunger<20?'肚子饿了。按 B 打开背包吃点东西，或在农场小屋前采莓果。':s.stats.planted<5?'走进农田，用锄头松土，再种下第一颗种子。':s.stats.caught<1?'到农场池塘边，选鱼竿（5），按空格试试。':'四季正在发生，按 J 看看下一个小目标。';
-    $('seasonNote').textContent={spring:'春风吹过种子，新的故事正在发芽。',summer:'夏日漫长，记得带上口粮再出门。',autumn:'收获不必匆忙，落叶会替你记下日子。',winter:'萝卜与冬白菜，也在雪中安静生长。'}[season];
   }
   renderPanel(){
     if(!this.panel)return;const s=this.state(),panel=this.panel,content=$('modalContent');const scroll=content.scrollTop;
@@ -111,8 +125,9 @@ export class UI {
     if(panel==='import'&&this.importDraft)html+=`<p class="info-note">第 ${this.importDraft.calendar.day} 天 · ${this.importDraft.gold} G · ${SCENES[this.importDraft.player.scene].name}</p><div class="button-row">${button('确认导入','confirmImport')}${button('取消','close')}</div>`;
     if(panel==='regions')html=`<div class="modal-eyebrow">BEYOND THE TRAIL</div><h2 id="modalTitle">探索与通行</h2><p class="modal-subtitle">收获、采集、钓鱼、料理和寻迹都积累经验。等级达标免费开放，也可提前购买永久通行。</p><p class="info-note">当前 Lv.${levelOf(s)} · 累计经验 ${s.progression.xp}${LEVEL_XP[levelOf(s)]!==undefined?` · 下一级 ${LEVEL_XP[levelOf(s)]}`:' · 已达最高等级'}</p><div class="card-grid">${AREAS.map(a=>`<article class="content-card"><h3>${a.name}</h3><p>${a.description}</p><p>Lv.${a.level} 免费开放 / ${a.price} G 提前购买</p>${areaOpen(s,a.id)?'<span class="completed">已开放 · 到森林东侧路牌按 E</span>':button(`购买通行 · ${a.price} G`,'purchaseArea',a.id,'',s.gold<a.price||nearby(s)?.id!==a.id)}<small>在对应森林路牌旁购买</small></article>`).join('')}</div>`;
     if(panel==='journal'||panel==='map')html+=`<div class="section-title">森林寻迹 · 每日刷新</div><p class="info-note">寻找北坡足印、东侧池塘羽毛、南径树刻，再开启入口旁的宝箱（60 G、30 经验）。小狐狸用 25 G 换 2 颗莓果，池塘清泉每天恢复一次生命与体力。</p><p class="info-note">今日线索 ${s.progression.forestEvents.filter(e=>e.startsWith('trail')).length}/3 · 宝箱${s.progression.forestEvents.includes('cache')?'已领取':'待探索'} · Lv.${levelOf(s)} / ${s.progression.xp} 经验</p>${button('查看区域解锁','open','regions')}`;
-    if(panel==='settings')html+=`<div class="section-title">音乐与界面</div><div class="settings-row"><div><h3>溪谷背景音乐</h3><small>原创轻柔旋律；首次点击后播放，离开窗口自动暂停。</small></div>${button(s.settings.music?'已开启':'已关闭','music')}</div><label class="settings-row">音乐音量 <input aria-label="音乐音量" type="range" min="0" max="100" value="${s.settings.volume}" data-setting="volume" /></label><div class="settings-row"><div><h3>详细状态栏</h3><small>收起后保留日期、时间、金币与生命状态。</small></div>${button(s.settings.hud?'收起':'展开','toggleHud')}</div><label class="settings-row">状态栏宽度 <input aria-label="状态栏宽度" type="range" min="220" max="360" step="10" value="${s.settings.hudWidth}" data-setting="hudWidth" /></label>`;
+    if(panel==='settings')html+=`<div class="section-title">音乐与界面</div><div class="settings-row"><div><h3>溪谷背景音乐</h3><small>原创轻柔旋律；首次点击后播放，离开窗口自动暂停。</small></div>${button(s.settings.music?'已开启':'已关闭','music')}</div><label class="settings-row">音乐音量 <input aria-label="音乐音量" type="range" min="0" max="100" value="${s.settings.volume}" data-setting="volume" /></label><div class="settings-row"><div><h3>状态框详情</h3><small>展开显示待结算收入和手记入口。</small></div>${button(s.settings.hud?'收起':'展开','toggleHud')}</div><label class="settings-row">状态框大小 <input aria-label="状态框大小" type="range" min="220" max="360" step="10" value="${s.settings.hudWidth}" data-setting="hudWidth" /></label>`;
     const focusedAction=(document.activeElement as HTMLElement)?.dataset.action,focusedId=(document.activeElement as HTMLElement)?.dataset.id,focusedSetting=(document.activeElement as HTMLElement)?.dataset.setting;
+    if(panel==='journal')html+=`<div class="section-title">新手旅程</div><div class="milestones">${[['播种第一片希望',s.stats.planted,5],['收获第一篮蔬菜',s.stats.harvested,5],['钓起第一条鱼',s.stats.caught,1],['为自己做一顿饭',s.stats.cooked,1],['完成邻里的订单',s.stats.orders,1]].map(([name,n,total])=>`<p>${Number(n)>=Number(total)?'✓':'○'} ${name}<span>${Math.min(Number(n),Number(total))}/${total}</span></p>`).join('')}</div>`;
     content.innerHTML=html;content.scrollTop=scroll;
     if(focusedAction)Array.from(content.querySelectorAll<HTMLElement>('[data-action]')).find(el=>el.dataset.action===focusedAction&&el.dataset.id===focusedId)?.focus({preventScroll:true});
     if(focusedSetting)Array.from(content.querySelectorAll<HTMLElement>('[data-setting]')).find(el=>el.dataset.setting===focusedSetting)?.focus({preventScroll:true});

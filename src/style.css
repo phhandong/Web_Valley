@@ -47,3 +47,47 @@ body{font-size:14px}button,input{font-family:"Microsoft YaHei","PingFang SC",san
 .masthead{height:40px}.brand small{display:none}.brand strong{font-size:20px}.world-topline{height:22px}
 .vitals-card .vital,.vitals-card .card-eyebrow,.vitals-card .subtle-button{color:#e2e9ce}.vital b{font-size:12px}.button-row .action-button:not(:first-child){color:#365333!important}.scene-caption small{font-size:12px}.section-title{font-family:"Microsoft YaHei",sans-serif}
 @media(max-width:1100px){.app-frame{padding:8px 10px}.compact-bar{font-size:12px;flex-wrap:wrap}.game-layout{gap:10px}.brand small{display:none}.sidebar{max-height:calc(100dvh - 75px)}}
+
+/* A compact wooden almanac: vector pixel symbols and crisp, native text. */
+.game-layout,.hud-collapsed .game-layout{grid-template-columns:minmax(0,1fr) var(--hud-width,260px);align-items:start;gap:20px}
+.canvas-wrap{width:min(100%,calc((100dvh - 220px)*1.6))}.world-topline{margin-bottom:10px}
+.almanac-dock{width:var(--hud-width,260px);position:sticky;top:12px;padding:0 3px 8px;color:#593416;font-size:calc(13px * var(--hud-scale,1));font-variant-numeric:tabular-nums}
+.almanac-controls{display:flex;align-items:center;gap:5px;margin-bottom:8px;min-height:24px;color:#d4c49c}
+.almanac-controls>span{margin-right:auto;font-size:12px;letter-spacing:1px}.almanac-controls button{display:grid;place-items:center;width:25px;height:24px;padding:0;border:1px solid #9b8858;background:#304a3e;color:#eee0b6;font-size:17px;box-shadow:0 2px #142d25}
+.almanac-frame{padding:7px;border:3px solid #693e20;background:#bb782f;box-shadow:0 0 0 2px #e6b35a,inset 0 0 0 2px #f3c673,3px 5px 0 #122c2480;position:relative}
+.almanac-frame:before,.almanac-frame:after{content:"";position:absolute;width:4px;height:4px;background:#70451f;box-shadow:1px 1px #f5cd80;top:2px;pointer-events:none}.almanac-frame:before{left:2px}.almanac-frame:after{right:2px}
+.almanac-face{display:grid;grid-template-columns:calc(60px * var(--hud-scale,1)) minmax(0,1fr);grid-template-rows:auto auto auto;gap:4px}
+.day-dial{grid-row:1 / 4;min-height:calc(122px * var(--hud-scale,1));position:relative;overflow:hidden;border:3px solid #81501f;background:linear-gradient(#414568 0 42%,#84b9b8 43% 70%,#eed37c 100%);box-shadow:inset 3px 0 #e6a74b;clip-path:polygon(24% 0,100% 0,100% 100%,24% 100%,24% 94%,12% 94%,12% 82%,0 82%,0 18%,12% 18%,12% 6%,24% 6%)}
+.day-dial:after{content:"";position:absolute;width:3px;height:3px;top:16px;right:10px;background:#ebe8c9;box-shadow:-20px 13px #e0dba8,-7px 31px #fff0bd;pointer-events:none}
+.day-dial svg{width:calc(25px * var(--hud-scale,1));height:calc(25px * var(--hud-scale,1))}.dial-moon{position:absolute;top:10%;left:20%}.dial-sun{position:absolute;bottom:10%;left:20%}.day-dial.night{background:linear-gradient(#272f52 0 60%,#65808c 100%)}.day-dial.night .dial-sun{opacity:.4}
+.dial-hand{position:absolute;left:70%;bottom:24%;width:3px;height:38%;background:#a75526;transform-origin:50% 100%;box-shadow:1px 0 #ffe5a4}.dial-pivot{position:absolute;left:calc(70% - 3px);bottom:calc(24% - 3px);width:9px;height:9px;background:#8d4b22;border:2px solid #ffd273}
+.almanac-date,.almanac-clock{display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;background:#ffe0a1;border:2px solid #885021;box-shadow:inset 2px 2px #ffedb7,inset -2px -2px #e5ad5e;padding:4px}
+.almanac-date b{font-size:calc(17px * var(--hud-scale,1));font-weight:600}.almanac-date strong{font-size:calc(23px * var(--hud-scale,1));font-weight:600}.almanac-date>span{font-size:12px}
+.almanac-legends{display:flex;align-items:stretch;gap:4px;min-width:0}.almanac-legends>span,.almanac-legends>button{border:2px solid #845020;background:#f2c678;box-shadow:inset 1px 1px #ffe4a3;display:flex;align-items:center;justify-content:center;gap:3px;min-width:0;padding:3px;color:#593416}
+.almanac-legends svg{width:calc(20px * var(--hud-scale,1));height:calc(20px * var(--hud-scale,1));display:block}.almanac-legends i{display:block;font-style:normal}.weather-legend{flex:1.5}.season-legend{flex:.8}.almanac-legends>button{flex:1}.almanac-legends b{font-size:calc(12px * var(--hud-scale,1));font-weight:600}
+.almanac-clock{gap:5px}.almanac-clock strong{font-family:Consolas,"Microsoft YaHei",monospace;font-size:calc(25px * var(--hud-scale,1));font-weight:600;letter-spacing:-1px}.almanac-clock span{font-size:calc(11px * var(--hud-scale,1));writing-mode:vertical-rl;letter-spacing:1px}
+.almanac-gold{display:flex;align-items:center;gap:6px;margin-top:8px;padding:3px 8px;background:repeating-linear-gradient(90deg,#f8d491 0,#f8d491 22px,#edba6b 22px,#edba6b 24px);border:3px solid #824b20;box-shadow:0 2px #f2b95c,inset 0 2px #ffe9b2;min-height:40px}.almanac-gold svg{width:24px;height:24px;flex-shrink:0}.almanac-gold strong{margin-left:auto;color:#7e3421;font-family:Consolas,monospace;font-weight:700;letter-spacing:1px;overflow-wrap:anywhere;min-width:0}.almanac-gold>span{font-size:12px;color:#845527;font-weight:700}
+.almanac-details{background:#f8d797;border:2px solid #986127;margin-top:7px;padding:5px 7px}.almanac-pending{display:flex;justify-content:space-between;gap:6px;font-size:12px;color:#624019}
+.almanac-vitals{background:#f1ce8c;border:2px solid #855126;margin-top:8px;padding:5px 7px}.almanac-vitals .vital{margin:5px 0;gap:6px;color:#634721;font-size:12px!important}.almanac-vitals .vital-icon{width:17px;flex:0 0 17px}.vital-icon svg{width:17px;height:17px;display:block}.almanac-vitals .vital-name{width:27px;color:#634721;font-size:12px}.almanac-vitals .vital>div{height:7px;border:1px solid #9e7941;background:#b49157;box-shadow:0 1px #ffe4ad}.almanac-vitals .vital b{color:#634721;font-size:12px;font-weight:600}.almanac-vitals .health i{background:#cb6550}.almanac-vitals .stamina i{background:#739750}.almanac-vitals .hunger i{background:#dfa637}
+.almanac-journal{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;border:0;background:transparent;color:#4e3218;padding:7px 0 0;font-size:12px}.almanac-journal kbd{border-color:#976125;background:#f6d99d}
+.hud-collapsed .almanac-journal{display:none}
+@media(max-width:1100px){.game-layout,.hud-collapsed .game-layout{gap:12px}.almanac-dock{position:static}}
+
+/* Both HUD surfaces live inside the map; they do not alter canvas coordinates. */
+.game-layout,.hud-collapsed .game-layout{display:block}
+.canvas-wrap{width:min(100%,calc((100dvh - 140px)*1.6))}
+.canvas-wrap .almanac-dock{position:absolute;top:12px;right:12px;z-index:4;max-height:calc(100% - 110px);overflow:auto;scrollbar-width:thin;scrollbar-color:#c29045 #58432b}
+.canvas-wrap .almanac-controls{background:#243d31e8;padding:4px 5px;margin-bottom:5px;min-height:28px}
+.canvas-wrap .toolbar-row{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;margin:0;max-width:calc(100% - 28px);gap:8px;padding:5px;background:#855125ed;border:2px solid #58391f;box-shadow:0 0 0 2px #d5a355,inset 0 0 0 1px #edc378,0 4px 10px #18352a66}
+.canvas-wrap .toolbar{padding:2px;border:0;background:transparent;gap:4px}
+.canvas-wrap .toolbar button{width:54px;height:55px;background:#f3d99b;border-color:#ae7b3b;box-shadow:inset 0 -3px #d5b575;color:#634724}
+.canvas-wrap .toolbar button.active{background:#fff0c0;outline-color:#ffebaa}
+.canvas-wrap .seed-picker{padding:7px 10px;background:#ecd29a;color:#664720;border:1px solid #a8783b;min-width:134px}
+.canvas-wrap .seed-picker small{color:#896b36}.canvas-wrap .seed-picker strong{color:#8d4727}
+.canvas-wrap .world-prompt{bottom:100px;z-index:3}
+.canvas-wrap .fishing-panel{left:16px;right:auto;top:58px;bottom:100px;z-index:5}
+.canvas-wrap.hud-at-left .almanac-dock{left:12px;right:auto}
+.canvas-wrap.hud-at-left .fishing-panel{left:auto;right:16px}
+.canvas-wrap.toolbar-at-top .toolbar-row{top:12px;bottom:auto;left:12px;transform:none;max-width:calc(100% - var(--hud-width,260px) - 44px);flex-wrap:wrap;justify-content:flex-start}
+.canvas-wrap.toolbar-at-top .world-prompt{bottom:14px}
+@media(max-height:720px){.canvas-wrap .toolbar button{width:48px;height:50px}.canvas-wrap .seed-picker{min-width:120px}.canvas-wrap .toolbar-row{gap:5px}}
