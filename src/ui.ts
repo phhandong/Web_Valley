@@ -1,0 +1,136 @@
+import { CROPS,FISH,FORAGE,HAIRS,HATS,ITEMS,OUTFITS,OUTFIT_COLORS,RECIPES,SEASON_NAMES,SKINS,TOOLS,UPGRADE_COSTS,WEATHER_NAMES } from './content';
+import { clockText,seasonDay,seasonOf,shopOpen,yearOf } from './engine';
+import { quantity } from './inventory';
+import { SCENES,farmDimensions,nearby } from './world';
+import { drawPerson,iconSVG } from './art';
+import type { Appearance,GameStateV2,Inventory } from './types';
+import type { FishingSession } from './fishing';
+
+export const layout=`
+<div class="app-frame">
+  <header class="masthead"><a class="brand" href="#" aria-label="溪谷小农场"><span class="brand-art">${iconSVG('crop','#e9b77f')}</span><span><small>CREEKSIDE · VALLEY LIFE</small><strong>溪谷小农场<span>四季生活</span></strong></span></a><nav aria-label="农场菜单"><button data-action="open" data-id="bag">背包 <kbd>B</kbd></button><button data-action="open" data-id="map">地图 <kbd>M</kbd></button><button data-action="open" data-id="catalog">图鉴 <kbd>C</kbd></button><button data-action="open" data-id="settings" class="settings-button" aria-label="设置与帮助">☷</button></nav></header>
+  <div class="game-layout">
+    <section class="world-section">
+      <div class="world-topline"><div><span class="live-dot"></span><b id="sceneName">溪谷农场</b><small id="sceneTagline"></small></div><span id="saveStatus" class="save-status">本地自动保存</span></div>
+      <div class="canvas-wrap"><canvas id="game" aria-label="溪谷农场游戏画面" tabindex="0"></canvas><div class="frame-corners" aria-hidden="true"></div><div class="scene-caption"><small id="seasonCaption"></small></div><div id="worldPrompt" class="world-prompt" hidden></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div><div id="transition" class="transition" hidden><small>灯火可亲，明天见</small><h2></h2><p></p></div><div id="pauseBadge" class="pause-badge" hidden>已暂停 · 回来时继续</div>
+        <section id="fishingPanel" class="fishing-panel" hidden aria-label="钓鱼小游戏"><div class="fishing-title"><b>湖上的片刻</b><button data-action="cancelFishing" aria-label="收起鱼竿">×</button></div><p id="fishStatus"></p><div id="fishingTrack" class="fishing-track"><div id="floatZone" class="float-zone"></div><div id="fishMarker" class="fish-marker">${iconSVG('fish','#f1ca82')}</div></div><div class="catch-progress"><i id="catchProgress"></i></div><button data-action="reel" id="reelButton">提竿 / 按住上升</button><small>按住空格或鼠标上升，松开下降</small></section>
+      </div>
+      <div class="toolbar-row"><div class="toolbar" id="toolbar" aria-label="工具栏">${TOOLS.map(t=>`<button data-action="tool" data-id="${t.id}" title="${t.key} · ${t.name}" aria-label="${t.name}"><kbd>${t.key}</kbd>${iconSVG(t.mark)}<small>${t.name}</small></button>`).join('')}</div><button class="seed-picker" data-action="open" data-id="bag"><span id="selectedSeedIcon">${iconSVG('seed')}</span><span><small>当前种子</small><b id="selectedSeedName">萝卜</b></span><strong id="seedCount">5</strong></button></div>
+      <footer class="world-footer"><span><kbd>WASD</kbd> 移动　<kbd>空格</kbd> 使用　<kbd>E</kbd> 互动</span><span>让日子，慢一点。<i>✧</i></span></footer>
+    </section>
+    <aside class="sidebar">
+      <section class="calendar-card"><div class="card-eyebrow">溪谷历 <span id="yearText"></span></div><div class="calendar-date"><strong id="dayNumber">01</strong><div><b id="seasonName">秋月</b><span id="weatherName">晴朗</span></div><span class="weather-symbol" id="weatherSymbol">☀</span></div><div class="clock-row"><span>当地时间</span><strong id="clock">06:00</strong></div><div class="daylight-track"><i id="sunPosition"></i></div><div class="wallet"><span>你的金币</span><b><i>◉</i> <span id="gold">50</span><small>G</small></b></div><div class="pending-line">明日入账 <b id="pendingGold">0 G</b></div></section>
+      <section class="vitals-card"><div class="card-eyebrow">照顾好自己 <span>♡</span></div>${[['health','生命'],['stamina','体力'],['hunger','饱食']].map(([id,label])=>`<div class="vital ${id}"><span>${label}</span><div><i id="${id}Bar"></i></div><b id="${id}Value">100</b></div>`).join('')}<button data-action="open" data-id="bag" class="subtle-button">吃点东西，歇一歇 ↗</button></section>
+      <section class="journal-card"><button class="journal-heading" data-action="toggleJournal" aria-expanded="true"><span>农场手记</span><span>−</span></button><div id="journalBody"><p id="nextHint"></p><div id="goals"></div><button data-action="open" data-id="journal" class="subtle-button">查看成长记录 ↗</button></div></section>
+      <div class="season-note"><span>✳</span><p id="seasonNote"></p></div>
+    </aside>
+  </div>
+</div>
+<div id="modalBackdrop" class="modal-backdrop" hidden><section id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><button data-action="close" class="close-button" aria-label="关闭窗口">×</button><div id="modalContent"></div></section></div>
+<input type="file" id="importFile" accept=".json,application/json" hidden />`;
+
+const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
+const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+const itemIcon=(id:string)=>iconSVG(ITEMS[id]?.kind??'crop',ITEMS[id]?.color);
+const button=(text:string,action:string,id='',value='',disabled=false)=>`<button class="action-button" data-action="${action}" data-id="${id}" data-value="${value}" ${disabled?'disabled':''}>${text}</button>`;
+export class UI {
+  panel:string|null=null;
+  selectedItem=''; category='all'; draft:Appearance|null=null; importDraft:GameStateV2|null=null;
+  private toastTimer=0; private hudSignature='';private previousFocus:HTMLElement|null=null;
+  constructor(private state:()=>GameStateV2,private onAction:(action:string,id:string,value:string)=>void){
+    document.querySelector('#app')!.innerHTML=layout;
+    document.addEventListener('click',event=>{
+      const element=(event.target as Element).closest<HTMLButtonElement>('[data-action]');if(!element||element.disabled)return;
+      const action=element.dataset.action!,id=element.dataset.id??'',value=element.dataset.value??'';
+      if(action==='selectItem'){this.selectedItem=id;this.renderPanel();return}
+      if(action==='category'){this.category=id;this.selectedItem='';this.renderPanel();return}
+      if(action==='appearance'){if(this.draft)(this.draft as any)[id]=Number(value);this.renderPanel();return}
+      if(action==='toggleJournal'){const closed=$('journalBody').hidden;$('journalBody').hidden=!closed;element.setAttribute('aria-expanded',String(closed));return}
+      this.onAction(action,id,value==='quantity'?String(($<HTMLInputElement>('quantityInput')?.value??1)):value);
+    });
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Tab'&&this.panel){const nodes=Array.from($('modal').querySelectorAll<HTMLElement>('button:not(:disabled),input,select,a[href]')).filter(el=>el.getClientRects().length);const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}
+    });
+  }
+  showToast(message:string){if(!message)return;clearTimeout(this.toastTimer);$('toast').textContent=message;$('toast').hidden=false;this.toastTimer=window.setTimeout(()=>$('toast').hidden=true,3200);}
+  open(panel:string){if(!this.panel)this.previousFocus=document.activeElement as HTMLElement;this.panel=panel;this.category='all';this.selectedItem='';if(panel==='wardrobe')this.draft={...this.state().player.appearance};$('modalBackdrop').hidden=false;this.renderPanel();$('modal').querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}
+  close(){if(this.panel==='catch')return;this.panel=null;this.draft=null;$('modalBackdrop').hidden=true;this.previousFocus?.focus();}
+  forceClose(){this.panel=null;this.draft=null;$('modalBackdrop').hidden=true;}
+  hud(force=false){
+    const s=this.state(),p=s.player,season=seasonOf(s.calendar.day),v=p.vitals;
+    const signature=JSON.stringify([p.scene,p.x,p.y,p.direction,s.calendar.day,Math.floor(s.calendar.minute/10),s.calendar.weather,s.gold,s.shipping,s.legacyPending,v,s.selectedTool,s.selectedSeed,s.inventory.slots,s.stats]);
+    if(!force&&signature===this.hudSignature)return;this.hudSignature=signature;
+    const app=document.getElementById('app')!;app.dataset.scene=p.scene;app.dataset.x=String(p.x);app.dataset.y=String(p.y);app.dataset.minute=String(Math.floor(s.calendar.minute));
+    $('sceneName').textContent=SCENES[p.scene].name;$('sceneTagline').textContent=SCENES[p.scene].subtitle;$('yearText').textContent=`第 ${yearOf(s.calendar.day)} 年`;
+    $('dayNumber').textContent=String(seasonDay(s.calendar.day)).padStart(2,'0');$('seasonName').textContent=`${SEASON_NAMES[season]}月`;$('weatherName').textContent=WEATHER_NAMES[s.calendar.weather];$('weatherSymbol').textContent=s.calendar.weather==='sun'?(s.calendar.minute>=1080?'☾':'☀'):s.calendar.weather==='rain'?'☂':'❄';
+    $('clock').textContent=clockText(s.calendar.minute);$('sunPosition').style.left=`${(s.calendar.minute-360)/1200*94}%`;$('gold').textContent=s.gold.toLocaleString();$('pendingGold').textContent=`${s.shipping.reduce((n,i)=>n+ITEMS[i.id].sell*i.count,0)+s.legacyPending} G`;
+    $('seasonCaption').textContent=`${SEASON_NAMES[season]}月 ${seasonDay(s.calendar.day)} 日 · ${s.calendar.weather==='rain'?'雨落在泥土上':s.calendar.weather==='snow'?'雪落无声':s.calendar.minute>=1080?'晚风与灯火':'今日宜慢生活'}`;
+    for(const k of ['health','stamina','hunger'] as const){$(`${k}Value`).textContent=String(Math.ceil(v[k]));$(`${k}Bar`).style.width=`${v[k]}%`;}
+    document.querySelectorAll<HTMLElement>('[data-action="tool"]').forEach(b=>{b.classList.toggle('active',b.dataset.id===s.selectedTool);b.setAttribute('aria-pressed',String(b.dataset.id===s.selectedTool))});
+    $('selectedSeedName').textContent=ITEMS[`seed_${s.selectedSeed}`].name;$('selectedSeedIcon').innerHTML=itemIcon(`seed_${s.selectedSeed}`);$('seedCount').textContent=String(quantity(s.inventory,`seed_${s.selectedSeed}`));
+    const near=nearby(s);$('worldPrompt').hidden=!near;if(near)$('worldPrompt').innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
+    const goals=[['播种第一片希望',s.stats.planted,5],['收获第一篮蔬菜',s.stats.harvested,5],['钓起湖中的来信',s.stats.caught,1],['为自己做一顿饭',s.stats.cooked,1],['完成邻里的订单',s.stats.orders,1]] as [string,number,number][];
+    $('goals').innerHTML=goals.map(([name,n,max])=>`<div class="goal ${n>=max?'done':''}"><i>${n>=max?'✓':''}</i><span>${name}</span><small>${Math.min(n,max)}/${max}</small></div>`).join('');
+    $('nextHint').textContent=v.hunger<20?'肚子饿了。按 B 打开背包吃点东西，或在农场小屋前采莓果。':s.stats.planted<5?'走进农田，用锄头松土，再种下第一颗种子。':s.stats.caught<1?'到农场池塘边，选鱼竿（5），按空格试试。':'四季正在发生，按 J 看看下一个小目标。';
+    $('seasonNote').textContent={spring:'春风吹过种子，新的故事正在发芽。',summer:'夏日漫长，记得带上口粮再出门。',autumn:'收获不必匆忙，落叶会替你记下日子。',winter:'萝卜与冬白菜，也在雪中安静生长。'}[season];
+  }
+  renderPanel(){
+    if(!this.panel)return;const s=this.state(),panel=this.panel,content=$('modalContent');const scroll=content.scrollTop;
+    const titles:Record<string,[string,string]>={bag:['随身行囊','留一点食物给自己，也留一点空间给惊喜。'],chest:['小屋储物箱','把四季的收获，妥善收藏。'],shipping:['今日出货','亲自选择要出售的物品，清晨统一结算。'],grocer:['阿禾的杂货铺','08:00 — 20:00 · 应季的种子，刚刚到货。'],fisher:['老舟的渔具铺','08:00 — 20:00 · 好鱼竿，也需要一点耐心。'],smith:['石叔的工坊','08:00 — 20:00 · 让每一份耕耘，更轻松一些。'],kitchen:['小屋厨房','一顿热饭，是给自己的小小奖励。'],wardrobe:['我的衣柜','穿上喜欢的颜色，走进新的日子。'],map:['溪谷漫游','走到路牌旁按 E，下一段风景就在前面。'],journal:['农场手记','没有终点的生活，也有值得记住的进步。'],catalog:['四季收藏册','发现过的东西，都会在这里留下名字。'],settings:['设置与帮助','休息一下。打开面板时，溪谷的时间也会停下来。'],sleep:['晚安，溪谷','浇过水的作物会继续生长，出货收入将在清晨到账。'],catch:['一份湖上的礼物','背包满了。请选择接下来如何处理这条鱼。'],reset:['重新开始农场？','当前农场会替换为新的进度，上一份有效记录仍保留为备份。'],import:['导入这份农场？','当前进度先保存为备份，再打开所选记录。']};
+    const [title,subtitle]=titles[panel]??['溪谷',''];
+    let html=`<div class="modal-eyebrow">CREEKSIDE JOURNAL</div><h2 id="modalTitle">${title}</h2><p class="modal-subtitle">${subtitle}</p>`;
+    if(['bag','chest','shipping','grocer','fisher'].includes(panel))html+=this.inventoryPanel(s,panel);
+    if(panel==='smith'||panel==='fisher'){
+      html+=`<div class="section-title">${panel==='fisher'?'鱼竿升级':'让农场长大一点'}</div><div class="card-grid">${(panel==='fisher'?['rod']:['tools','bag','farm']).map(type=>{const k=type as keyof typeof UPGRADE_COSTS,cost=UPGRADE_COSTS[k][s.upgrades[k]],names={tools:'劳作工具',bag:'背包扩容',farm:'耕地扩建',rod:'鱼竿'};return `<article class="content-card"><h3>${names[k]} · ${s.upgrades[k]+1} 阶</h3><p>${k==='farm'?`当前 ${farmDimensions(s.upgrades.farm).join(' × ')} 格` : k==='bag'?`当前 ${s.inventory.capacity} 格`:k==='rod'?'浮标更宽，更容易留住鱼':'采集产量提高，耗力逐渐减少'}</p>${cost?`<p>${cost.gold} G　木材 ${cost.wood}　石料 ${cost.stone}</p>${button('升级','upgrade',type,'',!shopOpen(s))}`:'<span class="completed">已升至最高阶</span>'}</article>`}).join('')}</div>`;
+    }
+    if(panel==='kitchen')html+=`<div class="card-grid recipes">${RECIPES.map(r=>`<article class="content-card"><div class="card-icon">${itemIcon(r.id)}</div><h3>${r.name}</h3><p>${r.ingredients.map(i=>`${ITEMS[i.id].name} ${quantity(s.inventory,i.id)}/${i.count}`).join(' · ')}</p><small>生命 +${r.food.health}　体力 +${r.food.stamina}　饱食 +${r.food.hunger}</small>${button('做一份','cook',r.id,'',!r.ingredients.every(i=>quantity(s.inventory,i.id)>=i.count))}</article>`).join('')}</div>`;
+    if(panel==='wardrobe')html+=this.wardrobe(s);
+    if(panel==='map')html+=`<div class="map-diagram"><div class="map-place ${s.player.scene==='home'?'current':''}">⌂ 橡果小屋</div><span class="map-line">│</span><div class="map-route">${['forest','farm','town','lake'].map((id,i)=>`${i?'<span>↔</span>':''}<div class="map-place ${s.player.scene===id?'current':''}">${SCENES[id as keyof typeof SCENES].name}</div>`).join('')}</div></div><div class="card-grid">${Object.values(SCENES).map(scene=>`<article class="content-card"><h3>${scene.name}${s.player.scene===scene.id?' · 你在这里':''}</h3><p>${scene.subtitle}</p><small>${scene.exits.map(e=>e.label).join('　')}</small></article>`).join('')}</div>`;
+    if(panel==='journal')html+=`<div class="stats-grid">${[['收获',s.stats.harvested],['垂钓',s.stats.caught],['烹饪',s.stats.cooked],['订单',s.stats.orders],['声望',s.stats.reputation],['累计收入',`${s.stats.revenue} G`]].map(([k,v])=>`<div><strong>${v}</strong><small>${k}</small></div>`).join('')}</div><div class="section-title">值得期待的小目标</div><div class="milestones">${[['收获 20 份作物','枫叶斗篷',s.stats.harvested>=20],['钓到 10 条鱼','湖蓝钓装',s.stats.caught>=10],['制作 8 份料理','花环',s.stats.cooked>=8],['完成 10 份订单','星夜长衫',s.stats.orders>=10],['收集 12 种鱼','星星帽',FISH.every(f=>s.discoveries[f.id])]].map(([a,b,done])=>`<p class="${done?'completed':''}">${done?'✓':'○'} ${a}<span>${b}</span></p>`).join('')}</div><p class="info-note">完成目标后仍可继续游玩。每日订单在小镇公告板提交，换季会带来新的作物与鱼群。</p>`;
+    if(panel==='orders')html=`<div class="modal-eyebrow">NEIGHBOURHOOD REQUESTS</div><h2 id="modalTitle">邻里的小委托</h2><p class="modal-subtitle">今天的三张便笺。每天清晨更新，交付获得金币与声望。</p><div class="card-grid">${s.orders.map(o=>`<article class="content-card"><div class="card-icon">${itemIcon(o.item)}</div><h3>${ITEMS[o.item].name} × ${o.count}</h3><p>背包中 ${quantity(s.inventory,o.item)} 份</p><p>报酬 ${o.reward} G · 声望 +10</p>${button(o.done?'已完成':'交付物品','order',o.id,'',o.done||quantity(s.inventory,o.item)<o.count)}</article>`).join('')}</div>`;
+    if(panel==='catalog'){
+      const ids=[...CROPS.map(c=>c.id),...FISH.map(f=>f.id),...FORAGE.map(f=>f.id),...RECIPES.map(r=>r.id)];
+      html+=`<p class="collection-count">已发现 ${ids.filter(id=>s.discoveries[id]).length} / ${ids.length}</p><div class="card-grid collection">${ids.map(id=>{const found=s.discoveries[id];return `<article class="content-card ${found?'found':'undiscovered'}"><div class="card-icon">${itemIcon(id)}</div><h3>${ITEMS[id].name}</h3><p>${ITEMS[id].description}</p><small>${found?`首次：第 ${found.firstDay} 天 · 累计 ${found.count}`:'尚未发现 · 期待相遇'}</small></article>`}).join('')}</div>`;
+    }
+    if(panel==='settings')html+=`<div class="settings-row"><div><h3>钓鱼辅助</h3><small>扩大浮标范围、放慢鱼的移动；奖励不变。</small></div>${button(s.settings.fishingAssist?'已开启':'已关闭','assist')}</div><div class="settings-row"><div><h3>自然音效</h3><small>水滴、收获与轻柔提示音。</small></div>${button(s.settings.sound?'已开启':'已关闭','sound')}</div><div class="key-list"><p><kbd>WASD / 方向键</kbd> 连续移动</p><p><kbd>1 — 7</kbd> 选择工具</p><p><kbd>空格 / 点击</kbd> 操作高亮或相邻格</p><p><kbd>E</kbd> 进入建筑／交谈／采集</p><p><kbd>B / M / C / J</kbd> 背包／地图／图鉴／手记</p><p><kbd>Esc</kbd> 关闭／暂停</p></div><p class="info-note">站在农田中时优先操作脚下。低饱食度会增加体力消耗；农场小屋前每天有免费莓果。跨季作物休眠、不枯死。商店营业时间为 08:00–20:00。</p><div class="section-title">保存你的农场</div><p class="info-note">每 15 秒及重要操作后自动保存。不同浏览器或端口不共享存档，可用导出／导入搬移。</p><div class="button-row">${button('导出存档','export')}${button('导入存档','importFile')}${button('重新开始','open','reset')}</div><a class="attribution" href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow</a>`;
+    if(panel==='sleep')html+=`<div class="sleep-illustration">☾ <span>明日，又是崭新的一天。</span></div><p class="info-note">睡眠恢复全部体力、30 点生命，饱食度下降 10。雪天不自动浇水，雨天会浇灌露天作物。</p><div class="button-row">${button('睡到明天','sleep')}${button('再忙一会儿','close')}</div>`;
+    if(panel==='catch')html+=`<div class="catch-summary">${itemIcon(s.pendingCatch!)}<h3>${ITEMS[s.pendingCatch!]?.name}</h3></div>${button('尝试放入背包','acceptCatch')}<div class="section-title">替换一组物品（被替换物品将放弃）</div><div class="replace-list">${s.inventory.slots.map((slot,i)=>button(`${ITEMS[slot.id].name} × ${slot.count}`,'replaceCatch',String(i))).join('')}</div>${button('将鱼放回湖里','releaseCatch')}`;
+    if(panel==='reset')html+=`<p class="info-note">建议先导出当前存档留念。确认后从秋月第 1 天重新开始。</p><div class="button-row">${button('先导出存档','export')}${button('确认新农场','reset')}${button('保留当前农场','close')}</div>`;
+    if(panel==='import'&&this.importDraft)html+=`<p class="info-note">第 ${this.importDraft.calendar.day} 天 · ${this.importDraft.gold} G · ${SCENES[this.importDraft.player.scene].name}</p><div class="button-row">${button('确认导入','confirmImport')}${button('取消','close')}</div>`;
+    content.innerHTML=html;content.scrollTop=scroll;
+    $('modal').classList.toggle('wide',['bag','chest','catalog','kitchen','wardrobe','map'].includes(panel));
+    $('modal').querySelector<HTMLButtonElement>('.close-button')!.disabled=panel==='catch';
+    if(panel==='wardrobe'&&this.draft){const canvas=$<HTMLCanvasElement>('characterPreview'),c=canvas.getContext('2d')!;c.imageSmoothingEnabled=false;c.fillStyle='#b9bba0';c.fillRect(0,0,128,144);for(let i=0;i<15;i++){c.fillStyle='#9fa78e';c.fillRect(i*11%128,i*17%144,2,4)}drawPerson(c,64,120,this.draft,'down',0,3)}
+  }
+  private inventoryPanel(s:GameStateV2,panel:string){
+    const bag:Inventory=panel==='chest'&&this.category==='chest'?s.chest:s.inventory;
+    const stock=panel==='grocer'&&this.category==='buy';
+    let ids=stock?[...CROPS.filter(c=>c.seasons.includes(seasonOf(s.calendar.day))).map(c=>`seed_${c.id}`),'ration']:[...new Set(bag.slots.map(i=>i.id))];
+    if(!['all','buy','chest'].includes(this.category))ids=ids.filter(id=>ITEMS[id].kind===this.category);
+    if(!ids.includes(this.selectedItem))this.selectedItem=ids[0]??'';
+    let tabs=panel==='chest'?[['all','随身背包'],['chest','储物箱']]:panel==='grocer'?[['all','出售'],['buy','购买']]:[['all','全部'],['seed','种子'],['crop','作物'],['forage','采集'],['fish','鱼类'],['meal','食物'],['material','材料']];
+    let html=`<div class="panel-tabs">${tabs.map(([id,name])=>`<button class="${this.category===id?'active':''}" data-action="category" data-id="${id}">${name}</button>`).join('')}<small>${s.inventory.slots.length}/${s.inventory.capacity} 格 · ${s.gold} G</small></div>`;
+    html+=`<div class="inventory-layout"><div class="inventory-grid">${ids.map(id=>`<button class="item-slot ${this.selectedItem===id?'selected':''}" data-action="selectItem" data-id="${id}" aria-label="${ITEMS[id].name}">${itemIcon(id)}<b>${stock?`${ITEMS[id].buy} G`:quantity(bag,id)}</b><small>${ITEMS[id].name}</small></button>`).join('')}${Array.from({length:Math.max(0,12-ids.length)},()=>'<div class="empty-slot"></div>').join('')}</div>`;
+    const id=this.selectedItem,item=ITEMS[id];
+    if(item){html+=`<div class="item-detail"><div class="detail-icon">${itemIcon(id)}</div><h3>${item.name}</h3><p>${item.description}</p><p class="item-price">${stock?'购买':'出售'}价格 <b>${stock?item.buy:item.sell} G</b> / 份</p>${item.food?`<div class="food-values">生命 +${item.food.health}<br>体力 +${item.food.stamina}<br>饱食 +${item.food.hunger}</div>`:''}`;
+      if(['chest','shipping','grocer','fisher'].includes(panel))html+=`<label class="quantity-label">数量 <input id="quantityInput" type="number" min="1" max="${stock?99:quantity(bag,id)}" value="1" /></label>`;
+      if(panel==='bag'){if(item.kind==='seed')html+=button(s.selectedSeed===id.slice(5)?'已选择':'选择这袋种子','selectSeed',id);if(item.food)html+=button('吃一份','eat',id)}
+      if(panel==='chest')html+=button(this.category==='chest'?'取到背包':'放入储物箱',this.category==='chest'?'withdraw':'deposit',id,'quantity');
+      if(panel==='shipping')html+=button('加入今日出货','ship',id,'quantity');
+      if(['grocer','fisher'].includes(panel))html+=button(stock?'购买':'出售',stock?'buy':'sell',id,'quantity',!shopOpen(s));
+      html+='</div>';
+    }else html+='<div class="item-detail empty-detail">行囊很轻。<br>去寻找一些新的收获吧。</div>';
+    html+='</div>';
+    if(panel==='shipping')html+=`<div class="section-title">已装箱 · 明晨结算</div><p class="info-note">${s.shipping.map(i=>`${ITEMS[i.id].name} × ${i.count}（${ITEMS[i.id].sell*i.count} G）`).join('　')||'还没有装箱的物品'}${s.legacyPending?`　旧存档待结算 ${s.legacyPending} G`:''}</p>`;
+    return html;
+  }
+  private wardrobe(s:GameStateV2){const a=this.draft!;const opts=(names:string[],key:keyof Appearance,unlocked?:number[])=>names.map((name,i)=>`<button class="swatch-choice ${a[key]===i?'selected':''}" data-action="appearance" data-id="${key}" data-value="${i}">${name}${unlocked&&!unlocked.includes(i)?' ◇':''}</button>`).join('');
+    const lockedOutfit=!s.unlocked.outfits.includes(a.outfit),lockedHat=a.hat>=0&&!s.unlocked.hats.includes(a.hat);
+    return `<div class="wardrobe-layout"><div class="wardrobe-preview"><canvas id="characterPreview" width="128" height="144" aria-label="角色外观预览"></canvas><small>预览 · 确认后生效</small></div><div><h3>肤色</h3><div class="swatches">${SKINS.map((color,i)=>`<button aria-label="肤色 ${i+1}" class="color-swatch ${a.skin===i?'selected':''}" style="--swatch:${color}" data-action="appearance" data-id="skin" data-value="${i}"></button>`).join('')}</div><h3>发型</h3><div class="choices">${opts(HAIRS,'hair')}</div><h3>衣服</h3><div class="choices">${opts(OUTFITS,'outfit',s.unlocked.outfits)}</div><h3>帽子</h3><div class="choices"><button class="swatch-choice ${a.hat===-1?'selected':''}" data-action="appearance" data-id="hat" data-value="-1">不戴帽子</button>${opts(HATS,'hat',s.unlocked.hats)}</div><div class="button-row">${lockedOutfit?button(`解锁衣服 · ${150+a.outfit*35} G`,'unlockOutfit',String(a.outfit)):''}${lockedHat?button(`解锁帽子 · ${100+a.hat*25} G`,'unlockHat',String(a.hat)):''}${button('确认穿搭','wear','','',lockedOutfit||lockedHat)}${button('取消预览','close')}</div><p class="info-note">◇ 表示尚未解锁，也可通过手记里程碑免费获得。外观不影响属性。</p></div></div>`;
+  }
+  fishing(session:FishingSession|null){
+    $('fishingPanel').hidden=!session;if(!session)return;
+    $('fishStatus').textContent=session.stage==='waiting'?'鱼漂轻轻摇晃，等一等……':session.stage==='bite'?'咬钩了！现在按空格提竿！':session.stage==='reeling'?'让鱼留在绿色浮标里':'收竿中';
+    $('fishingTrack').hidden=session.stage!=='reeling';$('floatZone').style.height=`${session.range*100}%`;$('floatZone').style.top=`${(session.float-session.range/2)*100}%`;$('fishMarker').style.top=`${session.fishY*100}%`;$('catchProgress').style.width=`${session.progress*100}%`;
+  }
+}
