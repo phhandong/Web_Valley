@@ -35,8 +35,14 @@ export const SCENES:Record<SceneId,SceneDefinition>={
   ],exits:[{id:'farm',x:1,y:10,label:'← 农场',to:'farm',spawn:[29,7]},{id:'lake',x:30,y:10,label:'湖畔 →',to:'lake',spawn:[2,10]}],nodes:[],thorns:[],fishing:[]},
   forest:{id:'forest',name:'松影森林',subtitle:'沿着小径，寻找四季的馈赠',objects:[
     ...[[1,5],[7,3],[11,2],[16,3],[21,2],[27,3],[2,12],[8,14],[13,13],[18,16],[25,15],[28,10]].map(([x,y],i)=>tree(`tree${i}`,x,y)),
-    {id:'pool',kind:'water',x:19,y:8,w:5,h:4}
-  ],exits:[{id:'farm',x:4,y:1,label:'↑ 农场',to:'farm',spawn:[4,17]}],nodes:[
+    {id:'pool',kind:'water',x:19,y:8,w:5,h:4},
+    {id:'trail1',kind:'board',x:9,y:5,w:1,h:1,label:'足印',action:'event:trail1',solid:true},
+    {id:'trail2',kind:'board',x:26,y:12,w:1,h:1,label:'羽毛',action:'event:trail2',solid:true},
+    {id:'trail3',kind:'board',x:12,y:16,w:1,h:1,label:'树刻',action:'event:trail3',solid:true},
+    {id:'cache',kind:'chest',x:6,y:3,w:1,h:1,label:'寻迹宝箱',action:'event:cache',solid:true},
+    {id:'fox',kind:'bench',x:10,y:7,w:1,h:1,label:'小狐狸 · 莓果交换',action:'event:fox',solid:true},
+    {id:'spring',kind:'rock',x:18,y:8,w:1,h:1,label:'清泉休憩',action:'event:spring',solid:true}
+  ],exits:[{id:'farm',x:4,y:1,label:'↑ 农场',to:'farm',spawn:[4,17]},{id:'grove',x:30,y:6,label:'秘林 →',to:'grove',spawn:[2,10]},{id:'quarry',x:30,y:17,label:'石谷 →',to:'quarry',spawn:[2,10]}],nodes:[
     ...[[5,6],[9,8],[13,5],[17,7],[25,7],[27,13],[6,16],[16,17]].map(([x,y],i)=>({id:`forage${i}`,x,y,kind:'forage' as const,index:i%6})),
     ...[[11,10],[7,11],[26,17],[15,10]].map(([x,y],i)=>({id:`wood${i}`,x,y,kind:'wood' as const,index:0})),
     ...[[3,16],[16,13],[26,10],[11,17]].map(([x,y],i)=>({id:`stone${i}`,x,y,kind:'stone' as const,index:0}))
@@ -45,7 +51,21 @@ export const SCENES:Record<SceneId,SceneDefinition>={
     {id:'lakewater',kind:'water',x:13,y:3,w:17,h:15},
     tree('l1',3,3),tree('l2',7,2),tree('l3',4,15),tree('l4',9,16),
     {id:'seat',kind:'bench',x:6,y:12,w:2,h:1,solid:true},{id:'llamp',kind:'lamp',x:10,y:10,w:1,h:1}
-  ],exits:[{id:'town',x:1,y:10,label:'← 小镇',to:'town',spawn:[29,10]}],nodes:[],thorns:[],fishing:[[12,6],[12,8],[12,10],[12,12],[12,14]]}
+  ],exits:[{id:'town',x:1,y:10,label:'← 小镇',to:'town',spawn:[29,10]}],nodes:[],thorns:[],fishing:[[12,6],[12,8],[12,10],[12,12],[12,14]]},
+  grove:{id:'grove',name:'萤火秘林',subtitle:'暮色中的光点，藏着林间的秘密',objects:[
+    ...[[4,3],[9,2],[15,3],[22,2],[27,5],[4,15],[11,16],[19,15],[26,15]].map(([x,y],i)=>tree(`g${i}`,x,y)),
+    {id:'grovepool',kind:'water',x:18,y:7,w:7,h:5},
+    {id:'gift',kind:'chest',x:13,y:6,w:1,h:1,label:'林间补给 · 每日',action:'event:groveGift',solid:true}
+  ],exits:[{id:'forest',x:1,y:10,label:'← 森林',to:'forest',spawn:[29,6]}],nodes:[
+    ...[[6,6],[9,7],[12,10],[15,13],[8,13],[26,12],[28,8],[16,6]].map(([x,y],i)=>({id:`fruit${i}`,x,y,kind:'forage' as const,index:i%2?4:0})),
+    ...[[8,10],[14,15],[27,11]].map(([x,y],i)=>({id:`wood${i}`,x,y,kind:'wood' as const,index:0}))
+  ],thorns:[],fishing:[]},
+  quarry:{id:'quarry',name:'回声石谷',subtitle:'石壁记得雨声，也记得每一次回响',objects:[
+    ...[[5,3],[11,4],[18,2],[25,4],[7,15],[17,15],[26,15]].map(([x,y],i)=>({id:`rock${i}`,kind:'rock' as const,x,y,w:3,h:2,solid:true})),
+    {id:'relic',kind:'board',x:21,y:9,w:2,h:2,label:'古碑矿藏 · 每日',action:'event:quarryGift',solid:true}
+  ],exits:[{id:'forest',x:1,y:10,label:'← 森林',to:'forest',spawn:[29,17]}],nodes:[
+    ...[[5,7],[9,9],[12,7],[15,11],[18,7],[25,8],[27,12],[12,14]].map(([x,y],i)=>({id:`ore${i}`,x,y,kind:'stone' as const,index:0}))
+  ],thorns:[[16,8],[16,9],[24,13]],fishing:[]}
 };
 export const farmDimensions=(level:number)=>[[6,5],[9,8],[12,10]][level];
 export function plotIndex(x:number,y:number){return x>=FARM.x&&x<FARM.x+12&&y>=FARM.y&&y<FARM.y+10?(y-FARM.y)*12+x-FARM.x:-1;}

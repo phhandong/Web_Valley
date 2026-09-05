@@ -7,6 +7,8 @@ import { loadGame,parseSave,saveGame } from './persistence';
 import { reel,startFishing,tickFishing,type FishingSession } from './fishing';
 import { SCENES,TILE,nearby } from './world';
 import type { Direction,GameStateV2,Result,Tool } from './types';
+import { areaOpen,forestEvent,levelOf,purchaseArea } from './progression';
+import { ValleyMusic } from './music';
 
 const loaded=loadGame(localStorage);
 let state=loaded.state,saveBlocked=loaded.blocked;
@@ -18,6 +20,10 @@ const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(
 const ui=new UI(()=>state,handleAction);
 const canvas=$<HTMLCanvasElement>('game');
 const renderer=new SceneRenderer(canvas);
+let previousLevel=levelOf(state);
+const music=new ValleyMusic();
+window.addEventListener('pointerdown',()=>music.unlock(),{passive:true});
+window.addEventListener('keydown',()=>music.unlock());
 let audio:AudioContext|null=null;
 function tone(kind:string){
   if(!state.settings.sound)return;
@@ -39,14 +45,16 @@ function dayTransition(message:string){
   $('transition').querySelector('p')!.textContent=message;
 }
 function report(res:Result,x=state.player.x,y=state.player.y){
-  if(res.message)ui.showToast(res.message);
+  const level=levelOf(state),levelMessage=level>previousLevel?` · 升至 Lv.${level}！${level>=5?'石谷与秘林已开放':level>=3?'秘林已开放':''}`:'';previousLevel=level;
+  if(res.message||levelMessage)ui.showToast(res.message+levelMessage);
   if(res.ok){if(res.effect){renderer.burst(x,y,res.effect);tone(res.effect)}if(res.dayEnded)dayTransition(res.message);save();ui.hud(true)}
 }
 function interact(){
   if(ui.panel||transitionTime||fishing)return;
   const near=nearby(state);
-  if(near?.kind==='exit'){report(travel(state,near.id));return}
+  if(near?.kind==='exit'){const exit=SCENES[state.player.scene].exits.find(e=>e.id===near.id)!;if(!areaOpen(state,exit.to)){ui.open('regions');keys.clear();return}report(travel(state,near.id));return}
   if(near?.kind==='object'){
+    if(near.id.startsWith('event:')){report(forestEvent(state,near.id.slice(6)));return}
     if(['grocer','fisher','smith'].includes(near.id)&&!shopOpen(state)){ui.showToast('还没营业呢。每天 08:00—20:00 开门，先去逛逛吧。');return}
     ui.open(near.id);keys.clear();return;
   }
@@ -77,6 +85,10 @@ function handleAction(action:string,id:string,value:string){
   if(action==='selectSeed'){state.selectedSeed=id.slice(5);state.selectedTool='seed';report(result(true,'已选择'+ITEMS[id].name));ui.close();return}
   let res:Result|null=null;const count=Number(value);
   switch(action){
+    case 'purchaseArea':res=purchaseArea(state,id);break;
+    case 'toggleHud':state.settings.hud=!state.settings.hud;res=result(true,'');break;
+    case 'setting':if(id==='volume')state.settings.volume=Math.max(0,Math.min(100,Math.round(count)));if(id==='hudWidth')state.settings.hudWidth=Math.max(220,Math.min(360,Math.round(count)));res=result(true,'');break;
+    case 'music':state.settings.music=!state.settings.music;res=result(true,'背景音乐'+(state.settings.music?'已开启':'已关闭'));break;
     case 'eat':res=eat(state,id);break;
     case 'cook':res=cook(state,id);break;
     case 'buy':res=buy(state,id,count);break;
@@ -157,6 +169,7 @@ function simulate(dt:number){
 function frame(now:number){
   const dt=Math.min(.1,Math.max(0,(now-lastTime)/1000));lastTime=now;
   const paused=document.hidden||!focused;$('pauseBadge').hidden=!paused||!!ui.panel||transitionTime>0;
+  music.update(state,!paused);
   if(!paused){accumulator+=dt;while(accumulator>=1/60){simulate(1/60);accumulator-=1/60}saveElapsed+=dt;if(saveElapsed>=15)save()}
   else accumulator=0;
   renderer.draw(state,paused?0:dt,fishing);

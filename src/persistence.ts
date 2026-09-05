@@ -34,6 +34,10 @@ export function validSave(raw:unknown):raw is GameStateV2{
   if(!Array.isArray(s.orders)||s.orders.length!==3||!s.orders.every((o:unknown)=>obj(o)&&typeof o.id==='string'&&Object.hasOwn(ITEMS,o.item)&&int(o.count,1,3)&&int(o.reward,1)&&typeof o.done==='boolean')||new Set(s.orders.map((o:any)=>o.id)).size!==3)return false;
   if(!obj(s.unlocked)||!uniqueNumbers(s.unlocked.outfits,7)||!uniqueNumbers(s.unlocked.hats,5)||!s.unlocked.outfits.includes(a.outfit)||(a.hat!==-1&&!s.unlocked.hats.includes(a.hat)))return false;
   if(!obj(s.settings)||typeof s.settings.fishingAssist!=='boolean'||typeof s.settings.sound!=='boolean')return false;
+  if(typeof s.settings.music!=='boolean'||!int(s.settings.volume,0,100)||typeof s.settings.hud!=='boolean'||!int(s.settings.hudWidth,220,360))return false;
+  if(!obj(s.progression)||!int(s.progression.xp)||!int(s.progression.fishingRotation)||!Array.isArray(s.progression.areas)||!s.progression.areas.every((a:unknown)=>['grove','quarry'].includes(a as string))||new Set(s.progression.areas).size!==s.progression.areas.length)return false;
+  if(!Array.isArray(s.progression.forestEvents)||!s.progression.forestEvents.every((e:unknown)=>['trail1','trail2','trail3','cache','fox','spring','groveGift','quarryGift'].includes(e as string))||new Set(s.progression.forestEvents).size!==s.progression.forestEvents.length)return false;
+  if(['grove','quarry'].includes(s.player.scene)&&!s.progression.areas.includes(s.player.scene)&&s.progression.xp<(s.player.scene==='grove'?100:280))return false;
   if(s.pendingCatch!==null&&!(typeof s.pendingCatch==='string'&&ITEMS[s.pendingCatch]?.kind==='fish'))return false;
   return true;
 }
@@ -50,7 +54,16 @@ export function migrateV1(raw:unknown):GameStateV2|null{
   if(raw.quests.harvested)state.discoveries.radish={count:raw.quests.harvested,firstDay:1};
   return validSave(state)?state:null;
 }
-export function parseSave(text:string):GameStateV2|null{try{const value:unknown=JSON.parse(text);return validSave(value)?value:migrateV1(value)}catch{return null}}
+export function parseSave(text:string):GameStateV2|null{try{
+  const value:unknown=JSON.parse(text);
+  // Existing V2 farms gain additive defaults without losing their original record.
+  if(obj(value)&&value.version===2){
+    if(obj(value.settings))value.settings={music:true,volume:35,hud:false,hudWidth:260,...value.settings};
+    if(!Object.hasOwn(value,'progression'))value.progression={xp:0,areas:[],forestEvents:[],fishingRotation:0};
+    else if(obj(value.progression))value.progression={fishingRotation:0,...value.progression};
+  }
+  return validSave(value)?value:migrateV1(value);
+}catch{return null}}
 export function loadGame(storage:StorageLike):{state:GameStateV2;message:string;blocked:boolean}{
   try{
     const current=storage.getItem(SAVE_KEY),backup=storage.getItem(BACKUP_KEY),legacy=storage.getItem(LEGACY_KEY);

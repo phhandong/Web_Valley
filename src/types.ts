@@ -1,6 +1,6 @@
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type Weather = 'sun' | 'rain' | 'snow';
-export type SceneId = 'farm' | 'home' | 'town' | 'forest' | 'lake';
+export type SceneId = 'farm' | 'home' | 'town' | 'forest' | 'lake' | 'grove' | 'quarry';
 export type Direction = 'up' | 'down' | 'left' | 'right';
 export type Tool = 'hoe' | 'seed' | 'water' | 'hand' | 'rod' | 'axe' | 'pick';
 export type RNG = () => number;
@@ -31,7 +31,8 @@ export interface GameStateV2 {
   gathered: string[];
   orders: Order[];
   unlocked: { outfits: number[]; hats: number[] };
-  settings: { fishingAssist: boolean; sound: boolean };
+  settings: { fishingAssist: boolean; sound: boolean; music: boolean; volume: number; hud: boolean; hudWidth: number };
+  progression: { xp: number; areas: string[]; forestEvents: string[]; fishingRotation: number };
   pendingCatch: string | null;
   lastSettlement: number;
 }

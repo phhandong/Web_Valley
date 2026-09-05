@@ -3,8 +3,10 @@ import { clockText,seasonDay,seasonOf,shopOpen,yearOf } from './engine';
 import { quantity } from './inventory';
 import { SCENES,farmDimensions,nearby } from './world';
 import { drawPerson,iconSVG } from './art';
+import { AREAS,LEVEL_XP,areaOpen,levelOf } from './progression';
 import type { Appearance,GameStateV2,Inventory } from './types';
 import type { FishingSession } from './fishing';
+import { FISHING_DIFFICULTIES } from './fishing';
 
 export const layout=`
 <div class="app-frame">
@@ -12,7 +14,7 @@ export const layout=`
   <div class="game-layout">
     <section class="world-section">
       <div class="world-topline"><div><span class="live-dot"></span><b id="sceneName">溪谷农场</b><small id="sceneTagline"></small></div><span id="saveStatus" class="save-status">本地自动保存</span></div>
-      <div class="canvas-wrap"><canvas id="game" aria-label="溪谷农场游戏画面" tabindex="0"></canvas><div class="frame-corners" aria-hidden="true"></div><div class="scene-caption"><small id="seasonCaption"></small></div><div id="worldPrompt" class="world-prompt" hidden></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div><div id="transition" class="transition" hidden><small>灯火可亲，明天见</small><h2></h2><p></p></div><div id="pauseBadge" class="pause-badge" hidden>已暂停 · 回来时继续</div>
+      <div class="canvas-wrap"><canvas id="game" aria-label="溪谷农场游戏画面" tabindex="0"></canvas><div class="frame-corners" aria-hidden="true"></div><div class="scene-caption"><small id="seasonCaption"></small></div><div id="worldPrompt" class="world-prompt" aria-hidden="true"></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div><div id="transition" class="transition" hidden><small>灯火可亲，明天见</small><h2></h2><p></p></div><div id="pauseBadge" class="pause-badge" hidden>已暂停 · 回来时继续</div>
         <section id="fishingPanel" class="fishing-panel" hidden aria-label="钓鱼小游戏"><div class="fishing-title"><b>湖上的片刻</b><button data-action="cancelFishing" aria-label="收起鱼竿">×</button></div><p id="fishStatus"></p><div id="fishingTrack" class="fishing-track"><div id="floatZone" class="float-zone"></div><div id="fishMarker" class="fish-marker">${iconSVG('fish','#f1ca82')}</div></div><div class="catch-progress"><i id="catchProgress"></i></div><button data-action="reel" id="reelButton">提竿 / 按住上升</button><small>按住空格或鼠标上升，松开下降</small></section>
       </div>
       <div class="toolbar-row"><div class="toolbar" id="toolbar" aria-label="工具栏">${TOOLS.map(t=>`<button data-action="tool" data-id="${t.id}" title="${t.key} · ${t.name}" aria-label="${t.name}"><kbd>${t.key}</kbd>${iconSVG(t.mark)}<small>${t.name}</small></button>`).join('')}</div><button class="seed-picker" data-action="open" data-id="bag"><span id="selectedSeedIcon">${iconSVG('seed')}</span><span><small>当前种子</small><b id="selectedSeedName">萝卜</b></span><strong id="seedCount">5</strong></button></div>
@@ -39,36 +41,46 @@ export class UI {
   private toastTimer=0; private hudSignature='';private previousFocus:HTMLElement|null=null;
   constructor(private state:()=>GameStateV2,private onAction:(action:string,id:string,value:string)=>void){
     document.querySelector('#app')!.innerHTML=layout;
+    // Keep notifications outside the canvas stacking context and its clipping area.
+    document.querySelector('#app')!.append($('toast'));
+    document.querySelector('.world-topline')!.insertAdjacentHTML('afterend','<div class="compact-bar"><span id="compactStatus"></span><button id="hudToggle" data-action="toggleHud" aria-controls="statusSidebar" aria-expanded="false">展开状态 ▸</button></div>');
+    document.querySelector('.sidebar')!.id='statusSidebar';
+    $('modalBackdrop').addEventListener('click',e=>{if(e.target===$('modalBackdrop'))this.onAction('close','','')});
+    document.addEventListener('change',e=>{const el=e.target as HTMLInputElement;if(el.dataset.setting)this.onAction('setting',el.dataset.setting,el.value)});
     document.addEventListener('click',event=>{
       const element=(event.target as Element).closest<HTMLButtonElement>('[data-action]');if(!element||element.disabled)return;
       const action=element.dataset.action!,id=element.dataset.id??'',value=element.dataset.value??'';
       if(action==='selectItem'){this.selectedItem=id;this.renderPanel();return}
       if(action==='category'){this.category=id;this.selectedItem='';this.renderPanel();return}
       if(action==='appearance'){if(this.draft)(this.draft as any)[id]=Number(value);this.renderPanel();return}
-      if(action==='toggleJournal'){const closed=$('journalBody').hidden;$('journalBody').hidden=!closed;element.setAttribute('aria-expanded',String(closed));return}
+      if(action==='toggleJournal'){const body=$('journalBody');const collapsed=body.classList.contains('collapsed');body.classList.toggle('collapsed');element.setAttribute('aria-expanded',String(collapsed));element.querySelector('span:last-child')!.textContent=collapsed?'−':'+';return}
       this.onAction(action,id,value==='quantity'?String(($<HTMLInputElement>('quantityInput')?.value??1)):value);
     });
     document.addEventListener('keydown',e=>{
       if(e.key==='Tab'&&this.panel){const nodes=Array.from($('modal').querySelectorAll<HTMLElement>('button:not(:disabled),input,select,a[href]')).filter(el=>el.getClientRects().length);const first=nodes[0],last=nodes[nodes.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}
     });
+    $('modalBackdrop').addEventListener('animationend',e=>{if(e.animationName==='modal-out'){$('modalBackdrop').classList.remove('closing');$('modalBackdrop').hidden=true;}});
   }
-  showToast(message:string){if(!message)return;clearTimeout(this.toastTimer);$('toast').textContent=message;$('toast').hidden=false;this.toastTimer=window.setTimeout(()=>$('toast').hidden=true,3200);}
-  open(panel:string){if(!this.panel)this.previousFocus=document.activeElement as HTMLElement;this.panel=panel;this.category='all';this.selectedItem='';if(panel==='wardrobe')this.draft={...this.state().player.appearance};$('modalBackdrop').hidden=false;this.renderPanel();$('modal').querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}
-  close(){if(this.panel==='catch')return;this.panel=null;this.draft=null;$('modalBackdrop').hidden=true;this.previousFocus?.focus();}
-  forceClose(){this.panel=null;this.draft=null;$('modalBackdrop').hidden=true;}
+  showToast(message:string){if(!message)return;clearTimeout(this.toastTimer);const t=$('toast');t.textContent=message;t.classList.remove('leaving');t.hidden=false;this.toastTimer=window.setTimeout(()=>{t.classList.add('leaving');this.toastTimer=window.setTimeout(()=>{t.hidden=true;t.classList.remove('leaving')},200)},3000);}
+  open(panel:string){if(!this.panel)this.previousFocus=document.activeElement as HTMLElement;this.panel=panel;this.category='all';this.selectedItem='';if(panel==='wardrobe')this.draft={...this.state().player.appearance};const b=$('modalBackdrop');b.classList.remove('closing');b.hidden=false;this.renderPanel();$('modal').querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}
+  close(){if(!this.panel||this.panel==='catch')return;this.forceClose();this.previousFocus?.focus();}
+  forceClose(){this.panel=null;this.draft=null;const b=$('modalBackdrop');b.classList.remove('closing');b.hidden=true;}
   hud(force=false){
     const s=this.state(),p=s.player,season=seasonOf(s.calendar.day),v=p.vitals;
-    const signature=JSON.stringify([p.scene,p.x,p.y,p.direction,s.calendar.day,Math.floor(s.calendar.minute/10),s.calendar.weather,s.gold,s.shipping,s.legacyPending,v,s.selectedTool,s.selectedSeed,s.inventory.slots,s.stats]);
+    const signature=JSON.stringify([p.scene,p.x,p.y,p.direction,s.calendar.day,Math.floor(s.calendar.minute/10),s.calendar.weather,s.gold,s.shipping,s.legacyPending,v,s.selectedTool,s.selectedSeed,s.inventory.slots,s.stats,s.settings,s.progression]);
     if(!force&&signature===this.hudSignature)return;this.hudSignature=signature;
     const app=document.getElementById('app')!;app.dataset.scene=p.scene;app.dataset.x=String(p.x);app.dataset.y=String(p.y);app.dataset.minute=String(Math.floor(s.calendar.minute));
+    app.classList.toggle('hud-collapsed',!s.settings.hud);app.style.setProperty('--hud-width',`${s.settings.hudWidth}px`);
+    $('hudToggle').textContent=s.settings.hud?'收起状态 ◂':'展开状态 ▸';$('hudToggle').setAttribute('aria-expanded',String(s.settings.hud));
+    $('compactStatus').textContent=`${SEASON_NAMES[season]} ${seasonDay(s.calendar.day)} 日 · ${clockText(s.calendar.minute)} · ${WEATHER_NAMES[s.calendar.weather]}　${s.gold} G　Lv.${levelOf(s)}　生命 ${Math.ceil(v.health)} / 体力 ${Math.ceil(v.stamina)} / 饱食 ${Math.ceil(v.hunger)}`;
     $('sceneName').textContent=SCENES[p.scene].name;$('sceneTagline').textContent=SCENES[p.scene].subtitle;$('yearText').textContent=`第 ${yearOf(s.calendar.day)} 年`;
     $('dayNumber').textContent=String(seasonDay(s.calendar.day)).padStart(2,'0');$('seasonName').textContent=`${SEASON_NAMES[season]}月`;$('weatherName').textContent=WEATHER_NAMES[s.calendar.weather];$('weatherSymbol').textContent=s.calendar.weather==='sun'?(s.calendar.minute>=1080?'☾':'☀'):s.calendar.weather==='rain'?'☂':'❄';
     $('clock').textContent=clockText(s.calendar.minute);$('sunPosition').style.left=`${(s.calendar.minute-360)/1200*94}%`;$('gold').textContent=s.gold.toLocaleString();$('pendingGold').textContent=`${s.shipping.reduce((n,i)=>n+ITEMS[i.id].sell*i.count,0)+s.legacyPending} G`;
     $('seasonCaption').textContent=`${SEASON_NAMES[season]}月 ${seasonDay(s.calendar.day)} 日 · ${s.calendar.weather==='rain'?'雨落在泥土上':s.calendar.weather==='snow'?'雪落无声':s.calendar.minute>=1080?'晚风与灯火':'今日宜慢生活'}`;
-    for(const k of ['health','stamina','hunger'] as const){$(`${k}Value`).textContent=String(Math.ceil(v[k]));$(`${k}Bar`).style.width=`${v[k]}%`;}
+    for(const k of ['health','stamina','hunger'] as const){$(`${k}Value`).textContent=String(Math.ceil(v[k]));$(`${k}Bar`).style.width=`${v[k]}%`;$(`${k}Bar`).closest('.vital')?.classList.toggle('low',v[k]<20);}
     document.querySelectorAll<HTMLElement>('[data-action="tool"]').forEach(b=>{b.classList.toggle('active',b.dataset.id===s.selectedTool);b.setAttribute('aria-pressed',String(b.dataset.id===s.selectedTool))});
     $('selectedSeedName').textContent=ITEMS[`seed_${s.selectedSeed}`].name;$('selectedSeedIcon').innerHTML=itemIcon(`seed_${s.selectedSeed}`);$('seedCount').textContent=String(quantity(s.inventory,`seed_${s.selectedSeed}`));
-    const near=nearby(s);$('worldPrompt').hidden=!near;if(near)$('worldPrompt').innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
+    const near=nearby(s);const prompt=$('worldPrompt');prompt.classList.toggle('visible',!!near);prompt.setAttribute('aria-hidden',String(!near));if(near)prompt.innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
     const goals=[['播种第一片希望',s.stats.planted,5],['收获第一篮蔬菜',s.stats.harvested,5],['钓起湖中的来信',s.stats.caught,1],['为自己做一顿饭',s.stats.cooked,1],['完成邻里的订单',s.stats.orders,1]] as [string,number,number][];
     $('goals').innerHTML=goals.map(([name,n,max])=>`<div class="goal ${n>=max?'done':''}"><i>${n>=max?'✓':''}</i><span>${name}</span><small>${Math.min(n,max)}/${max}</small></div>`).join('');
     $('nextHint').textContent=v.hunger<20?'肚子饿了。按 B 打开背包吃点东西，或在农场小屋前采莓果。':s.stats.planted<5?'走进农田，用锄头松土，再种下第一颗种子。':s.stats.caught<1?'到农场池塘边，选鱼竿（5），按空格试试。':'四季正在发生，按 J 看看下一个小目标。';
@@ -97,7 +109,13 @@ export class UI {
     if(panel==='catch')html+=`<div class="catch-summary">${itemIcon(s.pendingCatch!)}<h3>${ITEMS[s.pendingCatch!]?.name}</h3></div>${button('尝试放入背包','acceptCatch')}<div class="section-title">替换一组物品（被替换物品将放弃）</div><div class="replace-list">${s.inventory.slots.map((slot,i)=>button(`${ITEMS[slot.id].name} × ${slot.count}`,'replaceCatch',String(i))).join('')}</div>${button('将鱼放回湖里','releaseCatch')}`;
     if(panel==='reset')html+=`<p class="info-note">建议先导出当前存档留念。确认后从秋月第 1 天重新开始。</p><div class="button-row">${button('先导出存档','export')}${button('确认新农场','reset')}${button('保留当前农场','close')}</div>`;
     if(panel==='import'&&this.importDraft)html+=`<p class="info-note">第 ${this.importDraft.calendar.day} 天 · ${this.importDraft.gold} G · ${SCENES[this.importDraft.player.scene].name}</p><div class="button-row">${button('确认导入','confirmImport')}${button('取消','close')}</div>`;
+    if(panel==='regions')html=`<div class="modal-eyebrow">BEYOND THE TRAIL</div><h2 id="modalTitle">探索与通行</h2><p class="modal-subtitle">收获、采集、钓鱼、料理和寻迹都积累经验。等级达标免费开放，也可提前购买永久通行。</p><p class="info-note">当前 Lv.${levelOf(s)} · 累计经验 ${s.progression.xp}${LEVEL_XP[levelOf(s)]!==undefined?` · 下一级 ${LEVEL_XP[levelOf(s)]}`:' · 已达最高等级'}</p><div class="card-grid">${AREAS.map(a=>`<article class="content-card"><h3>${a.name}</h3><p>${a.description}</p><p>Lv.${a.level} 免费开放 / ${a.price} G 提前购买</p>${areaOpen(s,a.id)?'<span class="completed">已开放 · 到森林东侧路牌按 E</span>':button(`购买通行 · ${a.price} G`,'purchaseArea',a.id,'',s.gold<a.price||nearby(s)?.id!==a.id)}<small>在对应森林路牌旁购买</small></article>`).join('')}</div>`;
+    if(panel==='journal'||panel==='map')html+=`<div class="section-title">森林寻迹 · 每日刷新</div><p class="info-note">寻找北坡足印、东侧池塘羽毛、南径树刻，再开启入口旁的宝箱（60 G、30 经验）。小狐狸用 25 G 换 2 颗莓果，池塘清泉每天恢复一次生命与体力。</p><p class="info-note">今日线索 ${s.progression.forestEvents.filter(e=>e.startsWith('trail')).length}/3 · 宝箱${s.progression.forestEvents.includes('cache')?'已领取':'待探索'} · Lv.${levelOf(s)} / ${s.progression.xp} 经验</p>${button('查看区域解锁','open','regions')}`;
+    if(panel==='settings')html+=`<div class="section-title">音乐与界面</div><div class="settings-row"><div><h3>溪谷背景音乐</h3><small>原创轻柔旋律；首次点击后播放，离开窗口自动暂停。</small></div>${button(s.settings.music?'已开启':'已关闭','music')}</div><label class="settings-row">音乐音量 <input aria-label="音乐音量" type="range" min="0" max="100" value="${s.settings.volume}" data-setting="volume" /></label><div class="settings-row"><div><h3>详细状态栏</h3><small>收起后保留日期、时间、金币与生命状态。</small></div>${button(s.settings.hud?'收起':'展开','toggleHud')}</div><label class="settings-row">状态栏宽度 <input aria-label="状态栏宽度" type="range" min="220" max="360" step="10" value="${s.settings.hudWidth}" data-setting="hudWidth" /></label>`;
+    const focusedAction=(document.activeElement as HTMLElement)?.dataset.action,focusedId=(document.activeElement as HTMLElement)?.dataset.id,focusedSetting=(document.activeElement as HTMLElement)?.dataset.setting;
     content.innerHTML=html;content.scrollTop=scroll;
+    if(focusedAction)Array.from(content.querySelectorAll<HTMLElement>('[data-action]')).find(el=>el.dataset.action===focusedAction&&el.dataset.id===focusedId)?.focus({preventScroll:true});
+    if(focusedSetting)Array.from(content.querySelectorAll<HTMLElement>('[data-setting]')).find(el=>el.dataset.setting===focusedSetting)?.focus({preventScroll:true});
     $('modal').classList.toggle('wide',['bag','chest','catalog','kitchen','wardrobe','map'].includes(panel));
     $('modal').querySelector<HTMLButtonElement>('.close-button')!.disabled=panel==='catch';
     if(panel==='wardrobe'&&this.draft){const canvas=$<HTMLCanvasElement>('characterPreview'),c=canvas.getContext('2d')!;c.imageSmoothingEnabled=false;c.fillStyle='#b9bba0';c.fillRect(0,0,128,144);for(let i=0;i<15;i++){c.fillStyle='#9fa78e';c.fillRect(i*11%128,i*17%144,2,4)}drawPerson(c,64,120,this.draft,'down',0,3)}
@@ -130,7 +148,8 @@ export class UI {
   }
   fishing(session:FishingSession|null){
     $('fishingPanel').hidden=!session;if(!session)return;
-    $('fishStatus').textContent=session.stage==='waiting'?'鱼漂轻轻摇晃，等一等……':session.stage==='bite'?'咬钩了！现在按空格提竿！':session.stage==='reeling'?'让鱼留在绿色浮标里':'收竿中';
+    const difficulty=FISHING_DIFFICULTIES[session.difficulty].name;
+    $('fishStatus').textContent=`${difficulty}${session.assist?' · 辅助':''}｜`+(session.stage==='waiting'?(session.difficulty==='intro'?'前 3 条慢慢练习，等鱼儿咬钩……':'鱼漂轻轻摇晃，等一等……'):session.stage==='bite'?'咬钩了！现在按空格提竿！':session.stage==='reeling'?'让鱼留在绿色浮标里':'收竿中');
     $('fishingTrack').hidden=session.stage!=='reeling';$('floatZone').style.height=`${session.range*100}%`;$('floatZone').style.top=`${(session.float-session.range/2)*100}%`;$('fishMarker').style.top=`${session.fishY*100}%`;$('catchProgress').style.width=`${session.progress*100}%`;
   }
 }

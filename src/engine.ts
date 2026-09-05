@@ -1,6 +1,7 @@
 import { CROPS,FISH,FORAGE,ITEMS,RECIPES,SEASONS,UPGRADE_COSTS } from './content';
 import { add,cloneBag,exchange,quantity,remove,transfer } from './inventory';
 import { SCENES,isUnlockedPlot,nearby,passable,plotIndex } from './world';
+import { areaOpen,AREAS,gainXP } from './progression';
 import type { Appearance,GameStateV2,Result,RNG,Season } from './types';
 export const seasonOf=(day:number):Season=>SEASONS[(2+Math.floor((day-1)/14))%4];
 export const seasonDay=(day:number)=>(day-1)%14+1;
@@ -10,11 +11,12 @@ export function random(state:GameStateV2):number{state.rng=(Math.imul(state.rng,
 export function initialState(seed=(Date.now()>>>0)):GameStateV2 {
   const state:GameStateV2={version:2,rng:seed,calendar:{day:1,minute:360,weather:'sun'},player:{scene:'farm',x:10,y:9,direction:'right',appearance:{skin:0,hair:0,outfit:0,hat:0},vitals:{health:100,stamina:100,hunger:100}},gold:50,
     inventory:{capacity:24,slots:[{id:'seed_radish',count:5},{id:'ration',count:3}]},chest:{capacity:120,slots:[]},shipping:[],legacyPending:0,plots:Array.from({length:120},()=>({tilled:false,crop:null})),selectedTool:'hoe',selectedSeed:'radish',upgrades:{farm:0,tools:0,rod:0,bag:0},
-    stats:{planted:0,harvested:0,shipped:0,cooked:0,caught:0,orders:0,revenue:0,reputation:0,boughtAfterShipping:false},discoveries:{},gathered:[],orders:[],unlocked:{outfits:[0,1,2],hats:[0]},settings:{fishingAssist:false,sound:true},pendingCatch:null,lastSettlement:0};
+    stats:{planted:0,harvested:0,shipped:0,cooked:0,caught:0,orders:0,revenue:0,reputation:0,boughtAfterShipping:false},discoveries:{},gathered:[],orders:[],unlocked:{outfits:[0,1,2],hats:[0]},settings:{fishingAssist:false,sound:true,music:true,volume:35,hud:false,hudWidth:260},progression:{xp:0,areas:[],forestEvents:[],fishingRotation:0},pendingCatch:null,lastSettlement:0};
   state.orders=generateOrders(state);return state;
 }
 export const result=(ok:boolean,message:string,effect?:Result['effect']):Result=>({ok,message,effect});
 export function discover(state:GameStateV2,id:string,count=1){
+  gainXP(state,count*(ITEMS[id]?.kind==='fish'?12:ITEMS[id]?.kind==='meal'?10:ITEMS[id]?.kind==='crop'?6:2));
   const entry=state.discoveries[id]??{count:0,firstDay:state.calendar.day};entry.count+=count;state.discoveries[id]=entry;
   const unlock=(list:number[],value:number)=>{if(!list.includes(value))list.push(value)};
   if(state.stats.harvested>=20)unlock(state.unlocked.outfits,3);
@@ -30,8 +32,8 @@ export function generateOrders(state:GameStateV2,rng:RNG=()=>random(state)){
   const pool=[...new Set(eligible)];
   return Array.from({length:3},(_,i)=>{const item=pool.splice(Math.floor(rng()*pool.length),1)[0]??'berry';const count=1+Math.floor(rng()*3);return{id:`${state.calendar.day}-${i}`,item,count,reward:Math.ceil(ITEMS[item].sell*count*1.5)+15,done:false}});
 }
-export const toolCost=(state:GameStateV2,base:number)=>Math.ceil(Math.max(1,base-state.upgrades.tools*.4)*(state.player.vitals.hunger<20?2:1));
-export function spend(state:GameStateV2,base:number){const cost=toolCost(state,base);if(state.player.vitals.stamina<cost)return false;state.player.vitals.stamina-=cost;return true;}
+export const toolCost=(state:GameStateV2,base:number)=>Math.max(1,base-state.upgrades.tools)*(state.player.vitals.hunger<20?2:1);
+export function spend(state:GameStateV2,base:number,labour=true){const cost=labour?toolCost(state,base):base*(state.player.vitals.hunger<20?2:1);if(state.player.vitals.stamina<cost)return false;state.player.vitals.stamina-=cost;return true;}
 export function dayEnd(state:GameStateV2,rescue=false,rng:RNG=()=>random(state)):Result {
   const day=state.calendar.day;
   if(state.lastSettlement>=day)return result(false,'今天已经结算');
@@ -42,6 +44,7 @@ export function dayEnd(state:GameStateV2,rescue=false,rng:RNG=()=>random(state))
   for(const plot of state.plots)if(plot.crop){const definition=CROPS.find(c=>c.id===plot.crop!.id)!;if(plot.crop.watered&&definition.seasons.includes(oldSeason))plot.crop.growth=Math.min(definition.days,plot.crop.growth+1);plot.crop.watered=false;}
   state.gold+=income-fee;state.stats.revenue+=income;state.shipping=[];state.legacyPending=0;state.gathered=[];state.pendingCatch=null;
   state.calendar.day++;state.calendar.minute=360;
+  state.progression.forestEvents=[];
   state.calendar.weather=rng()<.32?(seasonOf(state.calendar.day)==='winter'?'snow':'rain'):'sun';
   if(state.calendar.weather==='rain')for(const plot of state.plots)if(plot.crop)plot.crop.watered=true;
   const v=state.player.vitals;
@@ -83,7 +86,7 @@ export function farmAction(state:GameStateV2,x:number,y:number):Result{
     if(!crop.seasons.includes(seasonOf(state.calendar.day)))return result(false,`${crop.name}不适合在这个季节播种`);
     if(quantity(state.inventory,`seed_${crop.id}`)<1)return result(false,'种子用完了，到小镇补充吧');
     if(!spend(state,1))return result(false,'体力不足，先吃点东西');
-    remove(state.inventory,`seed_${crop.id}`,1);plot.crop={id:crop.id,growth:0,watered:state.calendar.weather==='rain'};state.stats.planted++;return result(true,`种下了${crop.name}`,'soil');
+    remove(state.inventory,`seed_${crop.id}`,1);plot.crop={id:crop.id,growth:0,watered:state.calendar.weather==='rain'};state.stats.planted++;gainXP(state,2);return result(true,`种下了${crop.name}`,'soil');
   }
   if(tool==='water'){
     if(!plot.crop)return result(false,'先种下一颗种子吧');
@@ -151,7 +154,7 @@ export function submitOrder(state:GameStateV2,id:string):Result{
   if(nearby(state)?.id!=='orders')return result(false,'请到小镇公告板交付');
   const order=state.orders.find(o=>o.id===id);if(!order||order.done)return result(false,'这份订单已完成');
   if(!remove(state.inventory,order.item,order.count))return result(false,'背包中的物品还不够');
-  order.done=true;state.gold+=order.reward;state.stats.reputation+=10;state.stats.orders++;state.stats.revenue+=order.reward;discover(state,order.item,0);return result(true,`订单完成！+${order.reward} G，声望 +10`);
+  order.done=true;state.gold+=order.reward;state.stats.reputation+=10;state.stats.orders++;state.stats.revenue+=order.reward;gainXP(state,25);discover(state,order.item,0);return result(true,`订单完成！+${order.reward} G，声望 +10，经验 +25`);
 }
 export function upgrade(state:GameStateV2,type:keyof typeof UPGRADE_COSTS):Result{
   const access=nearby(state)?.id;if(!shopOpen(state)||state.player.scene!=='town'||(type==='rod'?access!=='fisher':access!=='smith'))return result(false,'请到营业中的对应工坊升级');
@@ -179,6 +182,7 @@ export function chestTransfer(state:GameStateV2,id:string,count:number,deposit:b
 }
 export function travel(state:GameStateV2,id:string):Result{
   const exit=SCENES[state.player.scene].exits.find(e=>e.id===id);if(!exit||Math.abs(exit.x-state.player.x)+Math.abs(exit.y-state.player.y)>1)return result(false,'先走到出口旁');
+  if(!areaOpen(state,exit.to)){const area=AREAS.find(a=>a.id===exit.to)!;return result(false,`${area.name}需要 Lv.${area.level}，或购买 ${area.price} G 通行证`)}
   if(!passable(exit.to,...exit.spawn))return result(false,'这条路暂时无法通行');
   state.player.scene=exit.to;[state.player.x,state.player.y]=exit.spawn;return result(true,`来到${SCENES[exit.to].name}`);
 }
