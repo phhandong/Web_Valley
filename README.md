@@ -14,6 +14,12 @@ npm run preview -- --host 127.0.0.1
 
 开发默认 http://127.0.0.1:5173，正式预览默认 http://127.0.0.1:4173。以终端实际显示地址为准。不公开部署。
 
+## GitHub Pages 部署
+
+仓库包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，工作流会安装依赖、运行测试、按仓库子路径构建并发布 `dist`；也可以在 Actions 页面手动运行。
+
+首次使用时，在仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。发布地址通常为 `https://<用户名>.github.io/<仓库名>/`。
+
 ## 操作
 
 | 按键 | 用途 |
