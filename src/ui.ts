@@ -1,13 +1,14 @@
 import { CROPS,FISH,FORAGE,HAIRS,HATS,ITEMS,OUTFITS,OUTFIT_COLORS,RECIPES,SEASON_NAMES,SKINS,TOOLS,UPGRADE_COSTS,WEATHER_NAMES } from './content';
-import { clockText,seasonDay,seasonOf,shopOpen,yearOf } from './engine';
+import { clockText,seasonDay,seasonOf,shopOpen,targetTile,yearOf } from './engine';
 import { quantity } from './inventory';
-import { SCENES,farmDimensions,nearby } from './world';
+import { SCENES,farmDimensions,nearby,plotIndex,isUnlockedPlot } from './world';
 import { drawPerson,iconSVG } from './art';
 import { AREAS,LEVEL_XP,areaOpen,levelOf } from './progression';
 import type { Appearance,GameStateV2,Inventory } from './types';
 import type { FishingSession } from './fishing';
 import { FISHING_DIFFICULTIES } from './fishing';
 import { hudIcon } from './hud-icons';
+import { resourceAt } from './world';
 
 export const layout=`
 <div class="app-frame">
@@ -55,6 +56,7 @@ export class UI {
     document.querySelector('#app')!.append($('toast'));
     const mapFrame=document.querySelector('.canvas-wrap')!;
     mapFrame.append(document.querySelector('.almanac-dock')!,document.querySelector('.toolbar-row')!);
+    document.querySelector('.toolbar-row')!.insertAdjacentHTML('beforeend',`<button class="bag-toggle" data-action="open" data-id="bag" aria-label="打开背包" aria-controls="modal" aria-expanded="false">${iconSVG('bag')}<span>背包 <kbd>B</kbd></span><small id="bagCapacity">2 / 24</small></button>`);
     new ResizeObserver(()=>this.hud(true)).observe(mapFrame);
     $('modalBackdrop').addEventListener('click',e=>{if(e.target===$('modalBackdrop'))this.onAction('close','','')});
     document.addEventListener('change',e=>{const el=e.target as HTMLInputElement;if(el.dataset.setting)this.onAction('setting',el.dataset.setting,el.value)});
@@ -74,7 +76,7 @@ export class UI {
   showToast(message:string){if(!message)return;clearTimeout(this.toastTimer);const t=$('toast');t.textContent=message;t.classList.remove('leaving');t.hidden=false;this.toastTimer=window.setTimeout(()=>{t.classList.add('leaving');this.toastTimer=window.setTimeout(()=>{t.hidden=true;t.classList.remove('leaving')},200)},3000);}
   open(panel:string){if(!this.panel)this.previousFocus=document.activeElement as HTMLElement;this.panel=panel;this.category='all';this.selectedItem='';if(panel==='wardrobe')this.draft={...this.state().player.appearance};const b=$('modalBackdrop');b.classList.remove('closing');b.hidden=false;this.renderPanel();$('modal').querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();}
   close(){if(!this.panel||this.panel==='catch')return;this.forceClose();this.previousFocus?.focus();}
-  forceClose(){this.panel=null;this.draft=null;const b=$('modalBackdrop');b.classList.remove('closing');b.hidden=true;}
+  forceClose(){this.panel=null;this.draft=null;const b=$('modalBackdrop');b.classList.remove('closing');b.hidden=true;document.querySelector('.bag-toggle')?.setAttribute('aria-expanded','false');}
   hud(force=false){
     const s=this.state(),p=s.player,season=seasonOf(s.calendar.day),v=p.vitals;
     const signature=JSON.stringify([p.scene,p.x,p.y,p.direction,s.calendar.day,Math.floor(s.calendar.minute/10),s.calendar.weather,s.gold,s.shipping,s.legacyPending,v,s.selectedTool,s.selectedSeed,s.inventory.slots,s.stats,s.settings,s.progression]);
@@ -98,9 +100,16 @@ export class UI {
     for(const k of ['health','stamina','hunger'] as const){$(`${k}Value`).textContent=String(Math.ceil(v[k]));$(`${k}Bar`).style.width=`${v[k]}%`;$(`${k}Bar`).closest('.vital')?.classList.toggle('low',v[k]<20);}
     document.querySelectorAll<HTMLElement>('[data-action="tool"]').forEach(b=>{b.classList.toggle('active',b.dataset.id===s.selectedTool);b.setAttribute('aria-pressed',String(b.dataset.id===s.selectedTool))});
     $('selectedSeedName').textContent=ITEMS[`seed_${s.selectedSeed}`].name;$('selectedSeedIcon').innerHTML=itemIcon(`seed_${s.selectedSeed}`);$('seedCount').textContent=String(quantity(s.inventory,`seed_${s.selectedSeed}`));
+    $('bagCapacity').textContent=`${s.inventory.slots.length} / ${s.inventory.capacity}`;
+    document.querySelector('.bag-toggle')!.classList.toggle('bag-full',s.inventory.slots.length>=s.inventory.capacity);
     const near=nearby(s);const prompt=$('worldPrompt');prompt.classList.toggle('visible',!!near);prompt.setAttribute('aria-hidden',String(!near));if(near)prompt.innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
+    const target=targetTile(s);
+    const resource=resourceAt(s,target.x,target.y);
+    if(!near&&resource){prompt.classList.add('visible');prompt.setAttribute('aria-hidden','false');prompt.innerHTML=resource.kind==='tree'?'<kbd>6</kbd> 斧头 · <kbd>空格</kbd> 砍树，获得木材':'<kbd>7</kbd> 石镐 · <kbd>空格</kbd> 挖石，获得石料';}
+    if(!near&&p.scene==='farm'&&isUnlockedPlot(s,target.x,target.y)&&s.weeds.includes(plotIndex(target.x,target.y))){prompt.classList.add('visible');prompt.setAttribute('aria-hidden','false');prompt.innerHTML='<kbd>1</kbd> 锄头 · <kbd>空格</kbd> 除草，再松土播种';}
   }
   renderPanel(){
+    document.querySelector('.bag-toggle')?.setAttribute('aria-expanded',String(this.panel==='bag'));
     if(!this.panel)return;const s=this.state(),panel=this.panel,content=$('modalContent');const scroll=content.scrollTop;
     const titles:Record<string,[string,string]>={bag:['随身行囊','留一点食物给自己，也留一点空间给惊喜。'],chest:['小屋储物箱','把四季的收获，妥善收藏。'],shipping:['今日出货','亲自选择要出售的物品，清晨统一结算。'],grocer:['阿禾的杂货铺','08:00 — 20:00 · 应季的种子，刚刚到货。'],fisher:['老舟的渔具铺','08:00 — 20:00 · 好鱼竿，也需要一点耐心。'],smith:['石叔的工坊','08:00 — 20:00 · 让每一份耕耘，更轻松一些。'],kitchen:['小屋厨房','一顿热饭，是给自己的小小奖励。'],wardrobe:['我的衣柜','穿上喜欢的颜色，走进新的日子。'],map:['溪谷漫游','走到路牌旁按 E，下一段风景就在前面。'],journal:['农场手记','没有终点的生活，也有值得记住的进步。'],catalog:['四季收藏册','发现过的东西，都会在这里留下名字。'],settings:['设置与帮助','休息一下。打开面板时，溪谷的时间也会停下来。'],sleep:['晚安，溪谷','浇过水的作物会继续生长，出货收入将在清晨到账。'],catch:['一份湖上的礼物','背包满了。请选择接下来如何处理这条鱼。'],reset:['重新开始农场？','当前农场会替换为新的进度，上一份有效记录仍保留为备份。'],import:['导入这份农场？','当前进度先保存为备份，再打开所选记录。']};
     const [title,subtitle]=titles[panel]??['溪谷',''];
@@ -143,7 +152,9 @@ export class UI {
     if(!ids.includes(this.selectedItem))this.selectedItem=ids[0]??'';
     let tabs=panel==='chest'?[['all','随身背包'],['chest','储物箱']]:panel==='grocer'?[['all','出售'],['buy','购买']]:[['all','全部'],['seed','种子'],['crop','作物'],['forage','采集'],['fish','鱼类'],['meal','食物'],['material','材料']];
     let html=`<div class="panel-tabs">${tabs.map(([id,name])=>`<button class="${this.category===id?'active':''}" data-action="category" data-id="${id}">${name}</button>`).join('')}<small>${s.inventory.slots.length}/${s.inventory.capacity} 格 · ${s.gold} G</small></div>`;
-    html+=`<div class="inventory-layout"><div class="inventory-grid">${ids.map(id=>`<button class="item-slot ${this.selectedItem===id?'selected':''}" data-action="selectItem" data-id="${id}" aria-label="${ITEMS[id].name}">${itemIcon(id)}<b>${stock?`${ITEMS[id].buy} G`:quantity(bag,id)}</b><small>${ITEMS[id].name}</small></button>`).join('')}${Array.from({length:Math.max(0,12-ids.length)},()=>'<div class="empty-slot"></div>').join('')}</div>`;
+    const entries=panel==='bag'?bag.slots.filter(slot=>ids.includes(slot.id)):ids.map(id=>({id,count:quantity(bag,id)}));
+    if(panel==='bag')html+=`<div class="bag-summary"><span>已用 <b>${bag.slots.length} / ${bag.capacity}</b> 格 · 每格最多 99 份</span>${button('一键整理','sortBag')}<small>点击物品查看详情、选择种子或食用。<kbd>B</kbd> / <kbd>Esc</kbd> 关闭</small></div>`;
+    html+=`<div class="inventory-layout ${panel==='bag'?'backpack-layout':''}"><div class="inventory-grid">${entries.map(({id,count})=>`<button class="item-slot ${this.selectedItem===id?'selected':''}" data-action="selectItem" data-id="${id}" aria-label="${ITEMS[id].name}">${itemIcon(id)}<b>${stock?`${ITEMS[id].buy} G`:count}</b><small>${ITEMS[id].name}</small></button>`).join('')}${Array.from({length:panel==='bag'?Math.max(0,bag.capacity-bag.slots.length):Math.max(0,12-entries.length)},()=>'<div class="empty-slot" aria-label="空背包格"></div>').join('')}</div>`;
     const id=this.selectedItem,item=ITEMS[id];
     if(item){html+=`<div class="item-detail"><div class="detail-icon">${itemIcon(id)}</div><h3>${item.name}</h3><p>${item.description}</p><p class="item-price">${stock?'购买':'出售'}价格 <b>${stock?item.buy:item.sell} G</b> / 份</p>${item.food?`<div class="food-values">生命 +${item.food.health}<br>体力 +${item.food.stamina}<br>饱食 +${item.food.hunger}</div>`:''}`;
       if(['chest','shipping','grocer','fisher'].includes(panel))html+=`<label class="quantity-label">数量 <input id="quantityInput" type="number" min="1" max="${stock?99:quantity(bag,id)}" value="1" /></label>`;

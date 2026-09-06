@@ -47,6 +47,7 @@ export const RECIPES: Recipe[] = [
   {id:'winter_stew',name:'冬日炖菜',ingredients:[{id:'cabbage',count:1},{id:'potato',count:1},{id:'tomato',count:1}],food:{health:60,stamina:90,hunger:90},sell:210}
 ];
 export const ITEMS: Record<string, ItemDefinition> = {};
+export const RESOURCE_YIELDS={tree:{tool:'axe',item:'wood',count:6,cost:3},rock:{tool:'pick',item:'stone',count:4,cost:3}} as const;
 for (const crop of CROPS) {
   ITEMS[crop.id] = {id:crop.id,name:crop.name,kind:'crop',sell:crop.sell,color:crop.color,food:{health:3,stamina:10,hunger:15},description:'新鲜收获的农产品，可食用、烹饪或出售。'};
   ITEMS[`seed_${crop.id}`] = {id:`seed_${crop.id}`,name:`${crop.name}种子`,kind:'seed',buy:crop.seedPrice,sell:Math.floor(crop.seedPrice*.4),color:crop.color,description:`${crop.seasons.map(s=>SEASON_NAMES[s]).join('／')}季 · ${crop.days} 个浇水日成熟${crop.regrow?` · 每 ${crop.regrow} 日再收获`:''} · 售价 ${crop.sell} G`};
@@ -57,6 +58,7 @@ for (const meal of RECIPES) ITEMS[meal.id]={id:meal.id,name:meal.name,kind:'meal
 ITEMS.ration={id:'ration',name:'便携口粮',kind:'meal',buy:35,sell:10,color:'#d8b077',food:{health:5,stamina:35,hunger:45},description:'随身带上一份，忙碌时也记得好好吃饭。'};
 ITEMS.wood={id:'wood',name:'木材',kind:'material',sell:5,color:'#a77b4c',description:'森林中获取，用于工具升级和农场扩建。'};
 ITEMS.stone={id:'stone',name:'石料',kind:'material',sell:6,color:'#a0aaa4',description:'用镐采集，用于工具升级和农场扩建。'};
+ITEMS.fiber={id:'fiber',name:'植物纤维',kind:'material',sell:3,color:'#829553',description:'清理农田杂草获得的纤维，可存入储物箱或出售。'};
 export const TOOLS: {id:Tool; name:string; key:string; mark:string}[]=[{id:'hoe',name:'锄头',key:'1',mark:'hoe'},{id:'seed',name:'播种',key:'2',mark:'seed'},{id:'water',name:'水壶',key:'3',mark:'water'},{id:'hand',name:'采收',key:'4',mark:'hand'},{id:'rod',name:'鱼竿',key:'5',mark:'rod'},{id:'axe',name:'斧头',key:'6',mark:'axe'},{id:'pick',name:'石镐',key:'7',mark:'pick'}];
 export const SKINS=['#f3c99e','#dfb083','#c68d65','#a66d4e','#82533d','#603f34'];
 export const HAIRS=['栗色短发','深棕卷发','乌黑长发','浅金短发','银灰长发','酒红辫发'];

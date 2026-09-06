@@ -6,7 +6,8 @@ import { BACKUP_KEY,LEGACY_KEY,SAVE_KEY,loadGame,migrateV1,parseSave,saveGame,va
 import { reel,startFishing,tickFishing } from './fishing';
 import { SCENES,nearby,passable,type SceneDefinition } from './world';
 import type { GameStateV2,Inventory,SceneId } from './types';
-const fresh=()=>initialState(42);
+// These existing agriculture tests start with cleared land; pioneering is tested separately.
+const fresh=()=>{const s=initialState(42);s.weeds=[];return s;};
 function locate(s:GameStateV2,scene:SceneId,x:number,y:number){s.player.scene=scene;s.player.x=x;s.player.y=y}
 function plotState(id='radish'){const s=fresh();locate(s,'farm',12,8);s.selectedTool='hoe';farmAction(s,12,8);add(s.inventory,`seed_${id}`,1);s.selectedSeed=id;s.selectedTool='seed';farmAction(s,12,8);return s}
 class MemoryStorage{data=new Map<string,string>();getItem(k:string){return this.data.get(k)??null}setItem(k:string,v:string){this.data.set(k,v)}}

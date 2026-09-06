@@ -5,6 +5,7 @@ import { FARM,SCENES,TILE,COLS,ROWS,farmDimensions,isUnlockedPlot,type WorldObje
 import type { Appearance,GameStateV2,SceneId } from './types';
 import type { FishingSession } from './fishing';
 import { areaOpen } from './progression';
+import { objectKey } from './world';
 
 type Particle={x:number;y:number;vx:number;vy:number;life:number;color:string};
 export class SceneRenderer {
@@ -55,6 +56,17 @@ export class SceneRenderer {
     const scene=SCENES[state.player.scene];
     for(const object of scene.objects)if(object.kind==='water')this.water(object);
     if(scene.id==='farm')this.plots(state);
+    if(scene.id==='farm')for(const index of state.weeds){
+      const x=(FARM.x+index%12)*TILE,y=(FARM.y+Math.floor(index/12))*TILE;
+      const sway=this.reduced?0:Math.round(Math.sin(this.time*1.7+index)*1);
+      this.rect(x+3,y+17,19,5,'#40563155');
+      for(let blade=0;blade<5;blade++){
+        const bx=x+4+blade*4,h=8+(index+blade*3)%9;
+        this.rect(bx,y+20-h,2,h,blade%2?'#587740':'#6c8844');
+        this.rect(bx-2+sway,y+19-h,4,4,blade%2?'#a8ad5d':'#879e50');
+        this.rect(bx+2,y+13,3,2,'#b1b76b');
+      }
+    }
     for(const [x,y] of scene.thorns){this.rect(x*TILE+3,y*TILE+4,18,15,'#676c48');for(let i=0;i<3;i++){this.rect(x*TILE+i*6+3,y*TILE+1,2,21,'#ad6d56');this.rect(x*TILE+i*6,y*TILE+7,7,2,'#ad6d56')}}
     for(const node of availableForage(state)){
       if(state.gathered.includes(`${scene.id}:${node.id}`))continue;
@@ -69,7 +81,7 @@ export class SceneRenderer {
     const moving=Math.abs(this.px-state.player.x)+Math.abs(this.py-state.player.y)>.015;
     const factor=dt>0?Math.min(1,dt*20):0;this.px+=(state.player.x-this.px)*factor;this.py+=(state.player.y-this.py)*factor;
     if(moving)this.walk+=dt*22;else this.walk=0;
-    const objects=scene.objects.filter(o=>o.kind!=='water').map(o=>({y:o.y+o.h,draw:()=>this.object(o,state)}));
+    const objects=scene.objects.filter(o=>o.kind!=='water'&&!state.clearedObjects.includes(objectKey(scene.id,o))).map(o=>({y:o.y+o.h,draw:()=>this.object(o,state)}));
     objects.push({y:this.py+1,draw:()=>drawPerson(c,this.px*TILE+12,this.py*TILE+21,preview??state.player.appearance,state.player.direction,this.walk,1,this.reduced?0:Math.sin(this.actionAge*35)*this.actionAge*8)});
     objects.sort((a,b)=>a.y-b.y).forEach(o=>o.draw());
     const target=targetTile(state);if(target.x>=0&&target.y>=0&&target.x<32&&target.y<20){c.strokeStyle=`rgba(247,229,173,${this.reduced?0.8:0.55+Math.sin(this.time*4)*0.3})`;c.lineWidth=1;const tx=target.x*TILE,ty=target.y*TILE;for(const [x,y,dx,dy] of [[tx+2,ty+7,0,-5],[tx+2,ty+2,5,0],[tx+22,ty+17,0,5],[tx+22,ty+22,-5,0]]){c.beginPath();c.moveTo(x,y);c.lineTo(x+dx,y+dy);c.stroke();}}

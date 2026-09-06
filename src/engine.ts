@@ -1,6 +1,6 @@
-import { CROPS,FISH,FORAGE,ITEMS,RECIPES,SEASONS,UPGRADE_COSTS } from './content';
+import { CROPS,FISH,FORAGE,ITEMS,RECIPES,RESOURCE_YIELDS,SEASONS,UPGRADE_COSTS } from './content';
 import { add,cloneBag,exchange,quantity,remove,transfer } from './inventory';
-import { SCENES,isUnlockedPlot,nearby,passable,plotIndex } from './world';
+import { SCENES,initialWeeds,isUnlockedPlot,nearby,passable,plotIndex,resourceAt,objectDistance,objectKey } from './world';
 import { areaOpen,AREAS,gainXP } from './progression';
 import type { Appearance,GameStateV2,Result,RNG,Season } from './types';
 export const seasonOf=(day:number):Season=>SEASONS[(2+Math.floor((day-1)/14))%4];
@@ -9,7 +9,7 @@ export const yearOf=(day:number)=>Math.floor((day-1)/56)+1;
 export const clockText=(minute:number)=>`${String(Math.floor(minute/60)%24).padStart(2,'0')}:${String(Math.floor(minute%60/10)*10).padStart(2,'0')}`;
 export function random(state:GameStateV2):number{state.rng=(Math.imul(state.rng,1664525)+1013904223)>>>0;return state.rng/4294967296;}
 export function initialState(seed=(Date.now()>>>0)):GameStateV2 {
-  const state:GameStateV2={version:2,rng:seed,calendar:{day:1,minute:360,weather:'sun'},player:{scene:'farm',x:10,y:9,direction:'right',appearance:{skin:0,hair:0,outfit:0,hat:0},vitals:{health:100,stamina:100,hunger:100}},gold:50,
+  const state:GameStateV2={version:2,weeds:initialWeeds(),clearedObjects:[],rng:seed,calendar:{day:1,minute:360,weather:'sun'},player:{scene:'farm',x:10,y:9,direction:'right',appearance:{skin:0,hair:0,outfit:0,hat:0},vitals:{health:100,stamina:100,hunger:100}},gold:50,
     inventory:{capacity:24,slots:[{id:'seed_radish',count:5},{id:'ration',count:3}]},chest:{capacity:120,slots:[]},shipping:[],legacyPending:0,plots:Array.from({length:120},()=>({tilled:false,crop:null})),selectedTool:'hoe',selectedSeed:'radish',upgrades:{farm:0,tools:0,rod:0,bag:0},
     stats:{planted:0,harvested:0,shipped:0,cooked:0,caught:0,orders:0,revenue:0,reputation:0,boughtAfterShipping:false},discoveries:{},gathered:[],orders:[],unlocked:{outfits:[0,1,2],hats:[0]},settings:{fishingAssist:false,sound:true,music:true,volume:35,hud:false,hudWidth:260},progression:{xp:0,areas:[],forestEvents:[],fishingRotation:0},pendingCatch:null,lastSettlement:0};
   state.orders=generateOrders(state);return state;
@@ -67,13 +67,35 @@ export function advanceTime(state:GameStateV2,seconds:number,rng?:RNG):Result|nu
   return null;
 }
 export function targetTile(state:GameStateV2){
-  const p=state.player;if(p.scene==='farm'&&isUnlockedPlot(state,p.x,p.y))return{x:p.x,y:p.y};
-  const [dx,dy]=({up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]})[p.direction];return{x:p.x+dx,y:p.y+dy};
+  const p=state.player,[dx,dy]=({up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]})[p.direction],front={x:p.x+dx,y:p.y+dy};
+  if(['axe','pick'].includes(state.selectedTool)&&resourceAt(state,front.x,front.y))return front;
+  if(p.scene==='farm'&&isUnlockedPlot(state,p.x,p.y))return{x:p.x,y:p.y};
+  return front;
+}
+export function harvestResource(state:GameStateV2,x:number,y:number):Result{
+  const object=resourceAt(state,x,y);
+  if(!object)return result(false,'这里没有可砍伐的树木或可开采的岩石');
+  if(objectDistance(state.player.x,state.player.y,object)>1)return result(false,'走到树木或岩石旁边再使用工具');
+  const tree=object.kind==='tree',rule=RESOURCE_YIELDS[tree?'tree':'rock'];
+  if(state.selectedTool!==rule.tool)return result(false,tree?'切换到斧头（6）砍树':'切换到石镐（7）挖石头');
+  const count=rule.count+state.upgrades.tools*2,bag=cloneBag(state.inventory);
+  if(!add(bag,rule.item,count))return result(false,'背包满了，先腾出材料空间');
+  if(!spend(state,rule.cost))return result(false,'体力不足，打开背包吃点东西再来');
+  state.inventory=bag;state.clearedObjects.push(objectKey(state.player.scene,object));discover(state,rule.item,count);
+  return result(true,`${tree?'砍倒了树木':'敲碎了岩石'} · ${ITEMS[rule.item].name} +${count}`,'harvest');
 }
 export function farmAction(state:GameStateV2,x:number,y:number):Result{
   if(state.player.scene!=='farm'||!isUnlockedPlot(state,x,y))return result(false,'请在已解锁的农田使用工具');
   if(Math.abs(x-state.player.x)+Math.abs(y-state.player.y)>1)return result(false,'走近一点，再照料这块地');
-  const plot=state.plots[plotIndex(x,y)],tool=state.selectedTool;
+  const index=plotIndex(x,y),plot=state.plots[index],tool=state.selectedTool;
+  if(state.weeds.includes(index)){
+    if(tool!=='hoe')return result(false,'这里长满杂草，先用锄头（1）清理');
+    const bag=cloneBag(state.inventory);
+    if(!add(bag,'fiber',1))return result(false,'背包满了，先到储物箱腾出空间再除草');
+    if(!spend(state,2))return result(false,'体力不足，打开背包吃点口粮再来');
+    state.inventory=bag;state.weeds=state.weeds.filter(i=>i!==index);discover(state,'fiber');
+    return result(true,'清除了杂草 · 纤维 +1 · 再用锄头松土即可播种','harvest');
+  }
   if(tool==='hoe'){
     if(plot.tilled)return result(false,'这块地已经松过土了');
     if(!spend(state,2))return result(false,'体力不足，吃点东西再来吧');
@@ -183,12 +205,12 @@ export function chestTransfer(state:GameStateV2,id:string,count:number,deposit:b
 export function travel(state:GameStateV2,id:string):Result{
   const exit=SCENES[state.player.scene].exits.find(e=>e.id===id);if(!exit||Math.abs(exit.x-state.player.x)+Math.abs(exit.y-state.player.y)>1)return result(false,'先走到出口旁');
   if(!areaOpen(state,exit.to)){const area=AREAS.find(a=>a.id===exit.to)!;return result(false,`${area.name}需要 Lv.${area.level}，或购买 ${area.price} G 通行证`)}
-  if(!passable(exit.to,...exit.spawn))return result(false,'这条路暂时无法通行');
+  if(!passable(exit.to,...exit.spawn,state.clearedObjects))return result(false,'这条路暂时无法通行');
   state.player.scene=exit.to;[state.player.x,state.player.y]=exit.spawn;return result(true,`来到${SCENES[exit.to].name}`);
 }
 export function step(state:GameStateV2,direction:GameStateV2['player']['direction']):Result{
   const p=state.player;p.direction=direction;const [dx,dy]=({up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]})[direction];
-  if(!passable(p.scene,p.x+dx,p.y+dy))return result(false,'');p.x+=dx;p.y+=dy;
+  if(!passable(p.scene,p.x+dx,p.y+dy,state.clearedObjects))return result(false,'');p.x+=dx;p.y+=dy;
   if(SCENES[p.scene].thorns.some(([x,y])=>x===p.x&&y===p.y)){p.vitals.health=Math.max(0,p.vitals.health-5);if(p.vitals.health===0)return dayEnd(state,true);return result(true,'荆棘划伤了你 · 生命 -5')}
   return result(true,'');
 }

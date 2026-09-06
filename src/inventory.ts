@@ -2,6 +2,13 @@ import { ITEMS } from './content';
 import type { Inventory, Stack } from './types';
 export const quantity=(bag:Inventory,id:string)=>bag.slots.filter(s=>s.id===id).reduce((n,s)=>n+s.count,0);
 export const cloneBag=(bag:Inventory):Inventory=>({capacity:bag.capacity,slots:bag.slots.map(s=>({...s}))});
+export function sortInventory(bag:Inventory){
+  const sorted:Inventory={capacity:bag.capacity,slots:[]};
+  const kinds=['seed','crop','forage','fish','meal','material'];
+  const ids=[...new Set(bag.slots.map(s=>s.id))].sort((a,b)=>kinds.indexOf(ITEMS[a].kind)-kinds.indexOf(ITEMS[b].kind)||ITEMS[a].name.localeCompare(ITEMS[b].name,'zh-CN'));
+  for(const id of ids)if(!add(sorted,id,quantity(bag,id)))return false;
+  bag.slots=sorted.slots;return true;
+}
 export function add(bag:Inventory,id:string,count:number):boolean {
   if(!ITEMS[id]||!Number.isSafeInteger(count)||count<=0) return false;
   const draft=cloneBag(bag); let left=count;

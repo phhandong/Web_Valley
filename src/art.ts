@@ -24,6 +24,7 @@ export function drawPerson(c:CanvasRenderingContext2D,x:number,y:number,a:Appear
 }
 export function iconSVG(kind:string,color='#d8b877'){
   const shapes:Record<string,string>={
+    bag:'<path d="M11 4h10v6h-3V7h-4v3h-3z" fill="#79552e"/><path d="M7 10h18v19H7zM4 17h3v10H4zM25 17h3v10h-3z" fill="#b98143"/><path d="M9 10h14v9H9z" fill="#e2b96f"/><path d="M11 22h10v5H11z" fill="#dfb06a"/><path d="M15 15h3v6h-3z" fill="#fff0bc"/>',
     hoe:'<path d="M7 26 21 7" stroke="#b79665" stroke-width="4"/><path d="m16 5 10 5-2 5-10-5z" fill="#a9bbb0"/>',
     seed:`<path d="M8 8h16v20H8z" fill="#e7d0a0"/><path d="M8 8h16v4H8z" fill="${color}"/><path d="m16 14 5 5-5 6-5-6z" fill="${color}"/>`,
     water:'<path d="M5 13h17v14H5zM10 8h7v5h-3v-3h-2v3h-2zM22 16l8-5v6l-8 6z" fill="#79afbb"/><path d="M7 15h3v9H7z" fill="#b6d5cf"/>',

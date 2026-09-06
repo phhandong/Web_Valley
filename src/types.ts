@@ -23,6 +23,8 @@ export interface GameStateV2 {
   shipping: Stack[];
   legacyPending: number;
   plots: Plot[];
+  weeds: number[];
+  clearedObjects: string[];
   selectedTool: Tool;
   selectedSeed: string;
   upgrades: { farm: number; tools: number; rod: number; bag: number };

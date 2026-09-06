@@ -9,6 +9,9 @@ import { SCENES,TILE,nearby } from './world';
 import type { Direction,GameStateV2,Result,Tool } from './types';
 import { areaOpen,forestEvent,levelOf,purchaseArea } from './progression';
 import { ValleyMusic } from './music';
+import { sortInventory } from './inventory';
+import { harvestResource } from './engine';
+import { resourceAt } from './world';
 
 const loaded=loadGame(localStorage);
 let state=loaded.state,saveBlocked=loaded.blocked;
@@ -60,6 +63,8 @@ function interact(){
   }
   const n=availableForage(state).filter(n=>!state.gathered.includes(state.player.scene+':'+n.id)).find(n=>Math.abs(n.x-state.player.x)+Math.abs(n.y-state.player.y)<=1);
   if(n){report(gather(state,n.x,n.y),n.x,n.y);return}
+  const target=targetTile(state);
+  if(resourceAt(state,target.x,target.y)){report(harvestResource(state,target.x,target.y),target.x,target.y);return}
   if(canFish(state)){beginFishing();return}
   ui.showToast('走到房门、路牌、采集物或商店旁，再按 E。');
 }
@@ -71,6 +76,7 @@ function beginFishing(){
 function useAt(x:number,y:number){
   if(ui.panel||transitionTime||fishing)return;
   if(state.selectedTool==='rod'){beginFishing();return}
+  if(resourceAt(state,x,y)){report(harvestResource(state,x,y),x,y);return}
   const n=availableForage(state).find(n=>n.x===x&&n.y===y&&!state.gathered.includes(state.player.scene+':'+n.id));
   if(n){report(gather(state,x,y),x,y);return}
   report(farmAction(state,x,y),x,y);
@@ -85,6 +91,7 @@ function handleAction(action:string,id:string,value:string){
   if(action==='selectSeed'){state.selectedSeed=id.slice(5);state.selectedTool='seed';report(result(true,'已选择'+ITEMS[id].name));ui.close();return}
   let res:Result|null=null;const count=Number(value);
   switch(action){
+    case 'sortBag':res=result(sortInventory(state.inventory),'背包已整理，同类物品已合并');break;
     case 'resizeHud':state.settings.hudWidth=Math.max(220,Math.min(360,state.settings.hudWidth+count));res=result(true,'');break;
     case 'purchaseArea':res=purchaseArea(state,id);break;
     case 'toggleHud':state.settings.hud=!state.settings.hud;res=result(true,'');break;
@@ -133,6 +140,7 @@ window.addEventListener('keydown',event=>{
     if(fishing){handleAction('cancelFishing','','');return}
     if(ui.panel)ui.close();else if(!transitionTime)ui.open('settings');return;
   }
+  if(key==='b'&&ui.panel==='bag'&&!(event.target instanceof HTMLInputElement)){event.preventDefault();if(!event.repeat)ui.close();keys.clear();return;}
   if(ui.panel||transitionTime)return;
   if([' ','e','b','m','c','j',...Object.keys(directions),...TOOLS.map(t=>t.key)].includes(key))event.preventDefault();
   if(fishing){if(key===' '&&!event.repeat){heldFish=true;reel(fishing)}return}

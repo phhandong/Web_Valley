@@ -1,6 +1,8 @@
 import type { SceneId, GameStateV2 } from './types';
 export const TILE=24, COLS=32, ROWS=20;
 export const FARM={x:12,y:8,cols:12,rows:10};
+// Dense, deterministic wilderness; paths and all scene entrances remain clear.
+export const initialWeeds=()=>Array.from({length:120},(_,i)=>i).filter(i=>(i*7+Math.floor(i/12)*3)%10<8);
 export type ObjectKind='house'|'tree'|'rock'|'water'|'shop'|'bed'|'wardrobe'|'kitchen'|'chest'|'shipping'|'board'|'lamp'|'bench';
 export interface WorldObject {id:string;kind:ObjectKind;x:number;y:number;w:number;h:number;label?:string;action?:string;solid?:boolean}
 export interface Exit {id:string;x:number;y:number;label:string;to:SceneId;spawn:[number,number]}
@@ -13,6 +15,8 @@ export const SCENES:Record<SceneId,SceneDefinition>={
     {id:'shipping',kind:'shipping',x:9,y:5,w:1,h:1,label:'出货箱',action:'shipping',solid:true},
     {id:'farmchest',kind:'chest',x:3,y:7,w:1,h:1,label:'储物箱',action:'chest',solid:true},
     {id:'pond',kind:'water',x:3,y:11,w:6,h:4},
+    {id:'farmrock1',kind:'rock',x:8,y:8,w:1,h:1,solid:true},
+    {id:'farmrock2',kind:'rock',x:25,y:12,w:2,h:2,solid:true},
     tree('f1',1,2),tree('f2',10,2),tree('f3',15,2),tree('f4',20,2),tree('f5',25,3),tree('f6',27,14),tree('f7',8,17),
     {id:'lamp',kind:'lamp',x:9,y:7,w:1,h:1}
   ],exits:[{id:'home',x:5,y:6,label:'进入小屋',to:'home',spawn:[16,16]},{id:'town',x:30,y:7,label:'小镇 →',to:'town',spawn:[2,10]},{id:'forest',x:4,y:18,label:'森林 ↓',to:'forest',spawn:[4,2]}],nodes:[0,1,2,3,4,5].map(i=>({id:`food${i}`,x:2+i,y:9,kind:'forage',index:0})),thorns:[],fishing:[[5,10],[6,10]]},
@@ -70,10 +74,14 @@ export const SCENES:Record<SceneId,SceneDefinition>={
 export const farmDimensions=(level:number)=>[[6,5],[9,8],[12,10]][level];
 export function plotIndex(x:number,y:number){return x>=FARM.x&&x<FARM.x+12&&y>=FARM.y&&y<FARM.y+10?(y-FARM.y)*12+x-FARM.x:-1;}
 export function isUnlockedPlot(state:GameStateV2,x:number,y:number){const [w,h]=farmDimensions(state.upgrades.farm);return x>=FARM.x&&y>=FARM.y&&x<FARM.x+w&&y<FARM.y+h;}
-export function passable(scene:SceneId,x:number,y:number){
+export const harvestable=(o:WorldObject)=>!o.action&&(o.kind==='tree'||o.kind==='rock');
+export const objectKey=(scene:SceneId,o:WorldObject)=>`${scene}:${o.id}`;
+export const objectDistance=(x:number,y:number,o:WorldObject)=>Math.max(o.x-x,0,x-(o.x+o.w-1))+Math.max(o.y-y,0,y-(o.y+o.h-1));
+export function resourceAt(state:GameStateV2,x:number,y:number){return SCENES[state.player.scene].objects.find(o=>harvestable(o)&&!state.clearedObjects.includes(objectKey(state.player.scene,o))&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);}
+export function passable(scene:SceneId,x:number,y:number,cleared:readonly string[]=[]){
   if(x<1||y<1||x>=COLS-1||y>=ROWS-1)return false;
   if(scene==='home'&&(x<5||x>26||y<3||y>17))return false;
-  return !SCENES[scene].objects.some(o=>(o.solid||o.kind==='water')&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);
+  return !SCENES[scene].objects.some(o=>!(harvestable(o)&&cleared.includes(objectKey(scene,o)))&&(o.solid||o.kind==='water')&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);
 }
 export function nearby(state:GameStateV2){
   const {scene,x,y}=state.player, map=SCENES[scene];
