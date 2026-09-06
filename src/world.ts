@@ -1,4 +1,5 @@
 import type { SceneId, GameStateV2 } from './types';
+import { ECOLOGY } from './balance';
 export const TILE=24, COLS=32, ROWS=20;
 export const FARM={x:12,y:8,cols:12,rows:10};
 // Dense, deterministic wilderness; paths and all scene entrances remain clear.
@@ -25,7 +26,7 @@ export const SCENES:Record<SceneId,SceneDefinition>={
     {id:'wardrobe',kind:'wardrobe',x:12,y:4,w:2,h:3,label:'衣柜',action:'wardrobe',solid:true},
     {id:'kitchen',kind:'kitchen',x:21,y:4,w:4,h:3,label:'厨房',action:'kitchen',solid:true},
     {id:'homechest',kind:'chest',x:7,y:12,w:2,h:1,label:'储物箱',action:'chest',solid:true},
-    {id:'table',kind:'bench',x:17,y:10,w:3,h:2,solid:true},
+    {id:'table',kind:'bench',x:17,y:10,w:3,h:2,solid:true,label:'起居区'},
     {id:'homelamp',kind:'lamp',x:24,y:12,w:1,h:1}
   ],exits:[{id:'out',x:16,y:17,label:'回到农场 ↓',to:'farm',spawn:[5,7]}],nodes:[],thorns:[],fishing:[]},
   town:{id:'town',name:'溪谷小镇',subtitle:'来买点种子，也听听新的故事',objects:[
@@ -55,33 +56,54 @@ export const SCENES:Record<SceneId,SceneDefinition>={
     {id:'lakewater',kind:'water',x:13,y:3,w:17,h:15},
     tree('l1',3,3),tree('l2',7,2),tree('l3',4,15),tree('l4',9,16),
     {id:'seat',kind:'bench',x:6,y:12,w:2,h:1,solid:true},{id:'llamp',kind:'lamp',x:10,y:10,w:1,h:1}
-  ],exits:[{id:'town',x:1,y:10,label:'← 小镇',to:'town',spawn:[29,10]}],nodes:[],thorns:[],fishing:[[12,6],[12,8],[12,10],[12,12],[12,14]]},
+  ],exits:[{id:'town',x:1,y:10,label:'← 小镇',to:'town',spawn:[29,10]},{id:'coast',x:6,y:18,label:'海湾 ↓',to:'coast',spawn:[6,2]}],nodes:[],thorns:[],fishing:[[12,6],[12,8],[12,10],[12,12],[12,14]]},
   grove:{id:'grove',name:'萤火秘林',subtitle:'暮色中的光点，藏着林间的秘密',objects:[
     ...[[4,3],[9,2],[15,3],[22,2],[27,5],[4,15],[11,16],[19,15],[26,15]].map(([x,y],i)=>tree(`g${i}`,x,y)),
     {id:'grovepool',kind:'water',x:18,y:7,w:7,h:5},
-    {id:'gift',kind:'chest',x:13,y:6,w:1,h:1,label:'林间补给 · 每日',action:'event:groveGift',solid:true}
+    {id:'gift',kind:'chest',x:13,y:6,w:1,h:1,label:'林间补给 · 三日',action:'event:groveGift',solid:true}
   ],exits:[{id:'forest',x:1,y:10,label:'← 森林',to:'forest',spawn:[29,6]}],nodes:[
     ...[[6,6],[9,7],[12,10],[15,13],[8,13],[26,12],[28,8],[16,6]].map(([x,y],i)=>({id:`fruit${i}`,x,y,kind:'forage' as const,index:i%2?4:0})),
     ...[[8,10],[14,15],[27,11]].map(([x,y],i)=>({id:`wood${i}`,x,y,kind:'wood' as const,index:0}))
   ],thorns:[],fishing:[]},
   quarry:{id:'quarry',name:'回声石谷',subtitle:'石壁记得雨声，也记得每一次回响',objects:[
     ...[[5,3],[11,4],[18,2],[25,4],[7,15],[17,15],[26,15]].map(([x,y],i)=>({id:`rock${i}`,kind:'rock' as const,x,y,w:3,h:2,solid:true})),
-    {id:'relic',kind:'board',x:21,y:9,w:2,h:2,label:'古碑矿藏 · 每日',action:'event:quarryGift',solid:true}
-  ],exits:[{id:'forest',x:1,y:10,label:'← 森林',to:'forest',spawn:[29,17]}],nodes:[
+    {id:'relic',kind:'board',x:21,y:9,w:2,h:2,label:'古碑矿藏 · 三日',action:'event:quarryGift',solid:true}
+  ],exits:[{id:'forest',x:1,y:10,label:'← 森林',to:'forest',spawn:[29,17]},{id:'ridge',x:30,y:10,label:'山脊 →',to:'ridge',spawn:[2,10]}],nodes:[
     ...[[5,7],[9,9],[12,7],[15,11],[18,7],[25,8],[27,12],[12,14]].map(([x,y],i)=>({id:`ore${i}`,x,y,kind:'stone' as const,index:0}))
-  ],thorns:[[16,8],[16,9],[24,13]],fishing:[]}
+  ],thorns:[[16,8],[16,9],[24,13]],fishing:[]},
+  coast:{id:'coast',name:'潮声海湾',subtitle:'沿着沙滩，等一尾远海的来客',objects:[
+    {id:'sea',kind:'water',x:13,y:3,w:18,h:15},tree('c1',3,4),tree('c2',8,3),
+    {id:'coastseat',kind:'bench',x:4,y:13,w:3,h:1,solid:true},
+    {id:'tidal',kind:'chest',x:9,y:7,w:1,h:1,label:'潮汐漂流箱',action:'event:coastGift',solid:true},
+    {id:'lighthouse',kind:'lamp',x:10,y:15,w:1,h:1}
+  ],exits:[{id:'lake',x:6,y:1,label:'↑ 湖畔',to:'lake',spawn:[6,17]}],nodes:[
+    {id:'driftwood',x:5,y:9,kind:'wood',index:0},{id:'pebbles',x:9,y:12,kind:'stone',index:0},{id:'herbs',x:3,y:16,kind:'forage',index:5}
+  ],thorns:[],fishing:[[12,6],[12,9],[12,12],[12,15]]},
+  ridge:{id:'ridge',name:'云杉山脊',subtitle:'越过石谷，在云影与松风间歇脚',objects:[
+    ...[[5,3],[11,2],[18,3],[25,4],[6,15],[22,15]].map(([x,y],i)=>tree(`pine${i}`,x,y)),
+    {id:'alpine',kind:'water',x:18,y:9,w:8,h:4},
+    {id:'outlook',kind:'board',x:11,y:7,w:2,h:2,label:'云端观景台',action:'event:ridgeView',solid:true},
+    {id:'ore',kind:'rock',x:27,y:15,w:2,h:2,solid:true}
+  ],exits:[{id:'quarry',x:1,y:10,label:'← 石谷',to:'quarry',spawn:[29,10]}],nodes:[
+    {id:'nuts',x:8,y:6,kind:'forage',index:3},{id:'herb',x:14,y:13,kind:'forage',index:5},
+    {id:'stone1',x:7,y:12,kind:'stone',index:0},{id:'stone2',x:28,y:9,kind:'stone',index:0}
+  ],thorns:[[16,15],[17,15]],fishing:[[20,8],[23,8]]}
 };
 export const farmDimensions=(level:number)=>[[6,5],[9,8],[12,10]][level];
 export function plotIndex(x:number,y:number){return x>=FARM.x&&x<FARM.x+12&&y>=FARM.y&&y<FARM.y+10?(y-FARM.y)*12+x-FARM.x:-1;}
 export function isUnlockedPlot(state:GameStateV2,x:number,y:number){const [w,h]=farmDimensions(state.upgrades.farm);return x>=FARM.x&&y>=FARM.y&&x<FARM.x+w&&y<FARM.y+h;}
 export const harvestable=(o:WorldObject)=>!o.action&&(o.kind==='tree'||o.kind==='rock');
 export const objectKey=(scene:SceneId,o:WorldObject)=>`${scene}:${o.id}`;
+export const treeStage=(state:GameStateV2,scene:SceneId,o:WorldObject)=>{
+  const age=state.ecology.trees[objectKey(scene,o)]??ECOLOGY.matureTreeDay;
+  return age<ECOLOGY.smallTreeDay?'sapling':age<ECOLOGY.matureTreeDay?'young':'mature';
+};
 export const objectDistance=(x:number,y:number,o:WorldObject)=>Math.max(o.x-x,0,x-(o.x+o.w-1))+Math.max(o.y-y,0,y-(o.y+o.h-1));
-export function resourceAt(state:GameStateV2,x:number,y:number){return SCENES[state.player.scene].objects.find(o=>harvestable(o)&&!state.clearedObjects.includes(objectKey(state.player.scene,o))&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);}
-export function passable(scene:SceneId,x:number,y:number,cleared:readonly string[]=[]){
+export function resourceAt(state:GameStateV2,x:number,y:number){return SCENES[state.player.scene].objects.find(o=>harvestable(o)&&(!state.clearedObjects.includes(objectKey(state.player.scene,o))||(o.kind==='tree'&&state.ecology.trees[objectKey(state.player.scene,o)]!==undefined))&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);}
+export function passable(scene:SceneId,x:number,y:number,cleared:readonly string[]=[],trees:Record<string,number>={}){
   if(x<1||y<1||x>=COLS-1||y>=ROWS-1)return false;
   if(scene==='home'&&(x<5||x>26||y<3||y>17))return false;
-  return !SCENES[scene].objects.some(o=>!(harvestable(o)&&cleared.includes(objectKey(scene,o)))&&(o.solid||o.kind==='water')&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);
+  return !SCENES[scene].objects.some(o=>!(harvestable(o)&&cleared.includes(objectKey(scene,o)))&&!(o.kind==='tree'&&(trees[objectKey(scene,o)]??6)<ECOLOGY.matureTreeDay)&&(o.solid||o.kind==='water')&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);
 }
 export function nearby(state:GameStateV2){
   const {scene,x,y}=state.player, map=SCENES[scene];

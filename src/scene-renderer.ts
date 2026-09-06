@@ -5,7 +5,7 @@ import { FARM,SCENES,TILE,COLS,ROWS,farmDimensions,isUnlockedPlot,type WorldObje
 import type { Appearance,GameStateV2,SceneId } from './types';
 import type { FishingSession } from './fishing';
 import { areaOpen } from './progression';
-import { objectKey } from './world';
+import { objectKey,treeStage } from './world';
 
 type Particle={x:number;y:number;vx:number;vy:number;life:number;color:string};
 export class SceneRenderer {
@@ -41,6 +41,8 @@ export class SceneRenderer {
       if(scene==='grove'){path(1,9,16,3);path(12,5,3,11)}
       if(scene==='quarry'){r(0,0,768,480,'#8a9388');for(let i=0;i<380;i++)r(i*137%768,i*71%480,5,2,i%2?'#a9b0a2':'#727f7a');path(1,9,28,3)}
       if(scene==='lake'){path(1,9,11,2);r(11*TILE,5*TILE,2*TILE,11*TILE,'#a48a61');for(let y=5*TILE;y<16*TILE;y+=8){r(11*TILE+2,y+1,2*TILE-4,6,'#c0a675');r(11*TILE+5,y+2,2,2,'#6f654a')}}
+      if(scene==='coast'){r(0,0,768,480,season==='winter'?'#d9d8c4':'#d8c493');for(let i=0;i<240;i++)r(i*113%768,i*67%480,3,1,'#b5a376');path(5,1,3,17);r(11*TILE,4*TILE,2*TILE,13*TILE,'#b19468');for(let y=100;y<400;y+=8)r(11*TILE+2,y,44,2,'#e7cf99');}
+      if(scene==='ridge'){r(0,0,768,480,'#8b9d93');for(let i=0;i<12;i++){r(i*70-20,4,60,35+i%3*12,'#bbc9c0');r(i*70,10,30,12,'#e0e4d5')}path(1,9,15,3);path(10,7,3,10);}
       // Flowers, stepping stones and border vegetation are deterministic local artwork.
       for(let i=0;i<55;i++){const x=(i*173+31)%758,y=(i*97+11)%472;if(i%3){r(x,y,2,5,'#5c7751');r(x-1,y-2,4,3,season==='winter'?'#f0f1e8':i%2?'#ddc280':'#d8d5b2')}}
       for(let x=0;x<32;x++){r(x*TILE,0,24,4,'#668064');r(x*TILE,476,24,4,'#667a59')}
@@ -81,11 +83,17 @@ export class SceneRenderer {
     const moving=Math.abs(this.px-state.player.x)+Math.abs(this.py-state.player.y)>.015;
     const factor=dt>0?Math.min(1,dt*20):0;this.px+=(state.player.x-this.px)*factor;this.py+=(state.player.y-this.py)*factor;
     if(moving)this.walk+=dt*22;else this.walk=0;
-    const objects=scene.objects.filter(o=>o.kind!=='water'&&!state.clearedObjects.includes(objectKey(scene.id,o))).map(o=>({y:o.y+o.h,draw:()=>this.object(o,state)}));
+    const objects=scene.objects.filter(o=>o.kind!=='water'&&(!state.clearedObjects.includes(objectKey(scene.id,o))||(o.kind==='tree'&&state.ecology.trees[objectKey(scene.id,o)]!==undefined))).map(o=>({y:o.y+o.h,draw:()=>this.object(o,state)}));
     objects.push({y:this.py+1,draw:()=>drawPerson(c,this.px*TILE+12,this.py*TILE+21,preview??state.player.appearance,state.player.direction,this.walk,1,this.reduced?0:Math.sin(this.actionAge*35)*this.actionAge*8)});
     objects.sort((a,b)=>a.y-b.y).forEach(o=>o.draw());
     const target=targetTile(state);if(target.x>=0&&target.y>=0&&target.x<32&&target.y<20){c.strokeStyle=`rgba(247,229,173,${this.reduced?0.8:0.55+Math.sin(this.time*4)*0.3})`;c.lineWidth=1;const tx=target.x*TILE,ty=target.y*TILE;for(const [x,y,dx,dy] of [[tx+2,ty+7,0,-5],[tx+2,ty+2,5,0],[tx+22,ty+17,0,5],[tx+22,ty+22,-5,0]]){c.beginPath();c.moveTo(x,y);c.lineTo(x+dx,y+dy);c.stroke();}}
-    if(fishing){const x=this.px*TILE+15,y=this.py*TILE-4;const bx=x+23,by=y+37+Math.sin(this.time*3)*2;c.strokeStyle='#dccdae';c.beginPath();c.moveTo(x,y+10);c.lineTo(x+12,y-18);c.lineTo(bx,by);c.stroke();this.rect(bx-2,by-2,4,5,fishing.stage==='bite'?'#f6cd73':'#bd6356');}
+    if(fishing){
+      const x=this.px*TILE+12,y=this.py*TILE+8,bx=fishing.anchor.x*TILE,by=fishing.anchor.y*TILE+(this.reduced?0:Math.sin(this.time*3)*1.5),bite=fishing.stage==='bite';
+      const direction=bx>x?1:-1;c.strokeStyle='#ecd5a2';c.lineWidth=2;c.beginPath();c.moveTo(x,y);c.lineTo(x+direction*12,y-24);c.stroke();c.lineWidth=1;c.strokeStyle='#fff1c5b0';c.beginPath();c.moveTo(x+direction*12,y-24);c.quadraticCurveTo((x+bx)/2,by-15,bx,by);c.stroke();
+      c.strokeStyle=bite?'#fff0ae':'#d7ece088';c.beginPath();c.ellipse(bx,by+4,bite?10+(this.reduced?0:Math.sin(this.time*10)*3):7,3,0,0,Math.PI*2);c.stroke();
+      this.rect(bx-3,by-5,6,5,'#fff0c5');this.rect(bx-3,by,6,5,bite?'#f26b42':'#cc6953');this.rect(bx-1,by-10,2,5,'#f8e4a5');
+      if(bite){this.rect(bx-2,by-34,4,12,'#ffdb62');this.rect(bx-2,by-19,4,4,'#ffdb62');this.label('咬钩！空格提竿',bx,by-42,'#ffdf75');}
+    }
     for(const p of this.particles){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=110*dt;c.globalAlpha=Math.min(1,p.life*3);this.rect(p.x,p.y,2,3,p.color)}c.globalAlpha=1;this.particles=this.particles.filter(p=>p.life>0);
     this.light(state);
     if(state.player.scene!=='home'&&state.calendar.weather!=='sun')this.weather(state.calendar.weather);
@@ -102,6 +110,12 @@ export class SceneRenderer {
     if(o.id==='fox'){r(x+3,y+10,19,10,'#c78145');r(x+13,y+4,10,10,'#db9b58');r(x+14,y+1,3,7,'#a96937');r(x+20,y+1,3,7,'#a96937');r(x+17,y+9,7,5,'#f6dfae');r(x+19,y+7,2,2,'#263e33');r(x-3,y+13,10,5,'#eac792');if(o.label)this.label(o.label,x+w/2,y-7);return;}
     if(o.kind==='rock'){r(x+2,y+8,w-4,h-9,'#576d70');r(x+7,y+2,w-14,h-8,'#91a3a0');r(x+10,y+5,Math.max(4,w/3),5,'#bdccc0');r(x+w-10,y+h-10,5,4,'#d6c798');}
     if(o.kind==='tree'){
+      const stage=treeStage(state,state.player.scene,o);
+      if(stage!=='mature'){
+        const cx=x+w/2,base=y+h-5,young=stage==='young';r(cx-9,base,18,4,'#354b3640');r(cx-2,base-(young?27:13),4,young?27:13,'#876540');
+        if(young){r(cx-14,base-35,28,17,'#547b52');r(cx-10,base-44,20,18,'#87a368');r(cx-7,base-40,9,6,'#b3bc7b');}else{r(cx-9,base-15,9,5,'#79a164');r(cx+1,base-21,9,6,'#acc17b');}
+        return;
+      }
       const season=seasonOf(state.calendar.day);const colors={spring:['#587b52','#779657','#92ad6c'],summer:['#456f4f','#648b56','#87a35e'],autumn:['#87754a','#ae9958','#c4ae70'],winter:['#738c82','#9eb4a3','#c5d2c4']}[season];
       r(x+2,y+h-7,w,10,'#394f3640');r(x+18,y+8,11,h-9,'#70573e');r(x+20,y+8,3,h-12,'#a58553');
       r(x-4,y-16,55,34,colors[0]);r(x+4,y-30,39,42,colors[1]);r(x+12,y-36,24,34,colors[1]);r(x-9,y-6,64,23,colors[0]);r(x+4,y-22,17,9,colors[2]);r(x+26,y-9,20,8,colors[2]);r(x-3,y+3,10,6,colors[1]);
@@ -126,7 +140,11 @@ export class SceneRenderer {
     if(o.kind==='wardrobe'){r(x+3,y,w-6,h,'#6e634a');r(x+6,y+4,w-12,h-8,'#ae9767');r(x+w/2,y+5,2,h-9,'#6e634a');r(x+w/2-6,y+h/2,3,5,'#e9d290');r(x+w/2+6,y+h/2,3,5,'#e9d290')}
     if(o.kind==='kitchen'){r(x,y+14,w,h-14,'#a08c67');r(x-2,y+12,w+4,8,'#e0d6b8');for(let i=0;i<3;i++)r(x+5+i*30,y+27,23,h-35,'#c0ac80');r(x+5,y+2,27,11,'#606b62');r(x+8,y+1,21,3,'#d1cbb1');r(x+50,y+4,23,8,'#6f8b85');r(x+55,y-4,4,13,'#adbab0')}
     if(o.kind==='board'){r(x+2,y+2,w-4,h-8,'#725d3f');r(x+5,y+5,w-10,h-15,'#b19769');for(let i=0;i<3;i++){r(x+8+i*10,y+9+i%2*8,8,17,'#eadbb4');r(x+10+i*10,y+12+i%2*8,4,1,'#a29472')}r(x+5,y+h-9,4,12,'#725d3f');r(x+w-9,y+h-9,4,12,'#725d3f')}
-    if(o.kind==='bench'){r(x+2,y+7,w-4,8,'#ad9468');r(x+4,y+15,4,h-12,'#796649');r(x+w-8,y+15,4,h-12,'#796649');}
+    if(o.id==='table'&&state.player.scene==='home'){
+      // All furniture pieces stay inside their declared footprint, so nothing is clipped.
+      r(x+2,y+3,w-4,h-7,'#4a6560');r(x+5,y+5,w-10,17,'#83a59a');r(x+8,y+23,w-16,h-30,'#a5bdb0');
+      r(x+3,y+16,7,h-20,'#698d81');r(x+w-10,y+16,7,h-20,'#698d81');r(x+w/2,y+6,2,h-16,'#62887a');r(x+12,y+10,12,12,'#e4c895');r(x+w-25,y+12,12,10,'#c79078');r(x+7,y+h-6,4,6,'#705639');r(x+w-11,y+h-6,4,6,'#705639');
+    }else if(o.kind==='bench'){r(x+2,y+3,w-4,Math.max(7,h-11),'#ad9468');r(x+4,y+h-8,4,8,'#796649');r(x+w-8,y+h-8,4,8,'#796649');}
     if(o.kind==='lamp'){r(x+11,y-12,3,36,'#606b56');r(x+6,y-16,13,12,'#c8b97d');r(x+8,y-13,9,7,'#f2df9a');r(x+5,y-18,15,3,'#63715b');}
     if(o.label)this.label(o.label,x+w/2,y-4);
   }

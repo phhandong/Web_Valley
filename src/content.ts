@@ -28,6 +28,11 @@ export const FISH: FishDefinition[] = [
   { id:'moonfish',name:'月光鱼',rarity:3,seasons:ALL_SEASONS,weather:['sun','rain','snow'],hours:[20,26],scenes:['lake'],sell:230,color:'#aab7ed' },
   { id:'goldfish',name:'金鳞鱼',rarity:3,seasons:['summer'],weather:['sun'],hours:[12,18],scenes:['lake'],sell:260,color:'#efd37e' }
 ];
+FISH.push(
+  {id:'sardine',name:'银沙丁鱼',rarity:1,seasons:ALL_SEASONS,weather:['sun','rain','snow'],hours:[6,26],scenes:['coast'],sell:35,color:'#afd5d3'},
+  {id:'seabass',name:'海鲈鱼',rarity:2,seasons:ALL_SEASONS,weather:['sun','rain','snow'],hours:[16,26],scenes:['coast'],sell:100,color:'#739fae'}
+);
+for(const fish of FISH)if(['crucian','trout','icefish'].includes(fish.id))fish.scenes.push('ridge');
 export const FORAGE = [
   { id:'berry',name:'莓果',color:'#b75c76',sell:8,food:{health:0,stamina:15,hunger:20},seasons:ALL_SEASONS },
   { id:'mushroom',name:'蘑菇',color:'#c8a27c',sell:14,food:{health:3,stamina:12,hunger:12},seasons:['spring','autumn'] as Season[] },
@@ -52,7 +57,7 @@ for (const crop of CROPS) {
   ITEMS[crop.id] = {id:crop.id,name:crop.name,kind:'crop',sell:crop.sell,color:crop.color,food:{health:3,stamina:10,hunger:15},description:'新鲜收获的农产品，可食用、烹饪或出售。'};
   ITEMS[`seed_${crop.id}`] = {id:`seed_${crop.id}`,name:`${crop.name}种子`,kind:'seed',buy:crop.seedPrice,sell:Math.floor(crop.seedPrice*.4),color:crop.color,description:`${crop.seasons.map(s=>SEASON_NAMES[s]).join('／')}季 · ${crop.days} 个浇水日成熟${crop.regrow?` · 每 ${crop.regrow} 日再收获`:''} · 售价 ${crop.sell} G`};
 }
-for (const fish of FISH) ITEMS[fish.id]={id:fish.id,name:fish.name,kind:'fish',sell:fish.sell,color:fish.color,description:`${['','常见','少见','稀有'][fish.rarity]}鱼 · ${fish.scenes.includes('farm')?'农场池塘／':''}湖畔 · ${fish.seasons.map(s=>SEASON_NAMES[s]).join('／')} · ${fish.hours[0]}:00–${fish.hours[1]}:00 · ${fish.weather.map(w=>WEATHER_NAMES[w]).join('／')}`};
+for (const fish of FISH) ITEMS[fish.id]={id:fish.id,name:fish.name,kind:'fish',sell:fish.sell,color:fish.color,description:`${['','常见','少见','稀有'][fish.rarity]}鱼 · ${fish.scenes.map(s=>({farm:'农场池塘',lake:'湖畔',coast:'海湾',ridge:'山脊湖'}[s as 'farm'|'lake'|'coast'|'ridge'])).join('／')} · ${fish.seasons.map(s=>SEASON_NAMES[s]).join('／')} · ${fish.hours[0]}:00–${fish.hours[1]}:00 · ${fish.weather.map(w=>WEATHER_NAMES[w]).join('／')}`};
 for (const item of FORAGE) ITEMS[item.id]={...item,kind:'forage',description:'可免费采集，食用恢复状态；也是厨房的好食材。'};
 for (const meal of RECIPES) ITEMS[meal.id]={id:meal.id,name:meal.name,kind:'meal',sell:meal.sell,color:'#e6b975',food:meal.food,description:'在自家厨房制作的温暖料理。'};
 ITEMS.ration={id:'ration',name:'便携口粮',kind:'meal',buy:35,sell:10,color:'#d8b077',food:{health:5,stamina:35,hunger:45},description:'随身带上一份，忙碌时也记得好好吃饭。'};

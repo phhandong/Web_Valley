@@ -8,7 +8,7 @@ import type { GameStateV2 } from './types';
 function at(s:GameStateV2,x:number,y:number){s.player.scene='forest';s.player.x=x;s.player.y=y;}
 describe('exploration progression',()=>{
   it('locks entry, opens at the exact level threshold, and keeps a safe return path',()=>{
-    const s=initialState(1);at(s,30,6);expect(travel(s,'grove').ok).toBe(false);s.progression.xp=99;expect(areaOpen(s,'grove')).toBe(false);s.progression.xp=100;expect(levelOf(s)).toBe(3);expect(travel(s,'grove').ok).toBe(true);expect(validSave(s)).toBe(true);expect(travel(s,'forest').ok).toBe(true);expect(s.player.scene).toBe('forest');
+    const s=initialState(1);at(s,30,6);expect(travel(s,'grove').ok).toBe(false);s.progression.xp=299;expect(areaOpen(s,'grove')).toBe(false);s.progression.xp=300;expect(levelOf(s)).toBe(3);expect(travel(s,'grove').ok).toBe(true);expect(validSave(s)).toBe(true);expect(travel(s,'forest').ok).toBe(true);expect(s.player.scene).toBe('forest');
   });
   it('purchases only at the correct gate and charges once, with no level requirement',()=>{
     const s=initialState(1);s.gold=500;expect(purchaseArea(s,'grove').ok).toBe(false);at(s,30,6);expect(purchaseArea(s,'grove').ok).toBe(true);expect(s.gold).toBe(320);expect(purchaseArea(s,'grove').ok).toBe(false);expect(s.gold).toBe(320);expect(parseSave(JSON.stringify(s))!.progression.areas).toEqual(['grove']);at(s,30,17);expect(purchaseArea(s,'quarry').ok).toBe(false);expect(s.gold).toBe(320);

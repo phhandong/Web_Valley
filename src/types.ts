@@ -1,6 +1,6 @@
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 export type Weather = 'sun' | 'rain' | 'snow';
-export type SceneId = 'farm' | 'home' | 'town' | 'forest' | 'lake' | 'grove' | 'quarry';
+export type SceneId = 'farm' | 'home' | 'town' | 'forest' | 'lake' | 'grove' | 'quarry' | 'coast' | 'ridge';
 export type Direction = 'up' | 'down' | 'left' | 'right';
 export type Tool = 'hoe' | 'seed' | 'water' | 'hand' | 'rod' | 'axe' | 'pick';
 export type RNG = () => number;
@@ -25,6 +25,7 @@ export interface GameStateV2 {
   plots: Plot[];
   weeds: number[];
   clearedObjects: string[];
+  ecology: { version:1; trees:Record<string,number>; nodeReady:Record<string,number>; eventReady:Record<string,number> };
   selectedTool: Tool;
   selectedSeed: string;
   upgrades: { farm: number; tools: number; rod: number; bag: number };

@@ -4,7 +4,7 @@ import { UI } from './ui';
 import { SceneRenderer } from './scene-renderer';
 import { acceptCatch,advanceTime,availableForage,buy,canFish,chestTransfer,cook,dayEnd,eat,farmAction,gather,initialState,result,sell,setAppearance,shopOpen,step,submitOrder,targetTile,travel,unlockAppearance,upgrade } from './engine';
 import { loadGame,parseSave,saveGame } from './persistence';
-import { reel,startFishing,tickFishing,type FishingSession } from './fishing';
+import { reel,startFishing,tickFishing,RecastGuard,type FishingSession } from './fishing';
 import { SCENES,TILE,nearby } from './world';
 import type { Direction,GameStateV2,Result,Tool } from './types';
 import { areaOpen,forestEvent,levelOf,purchaseArea } from './progression';
@@ -16,6 +16,8 @@ import { resourceAt } from './world';
 const loaded=loadGame(localStorage);
 let state=loaded.state,saveBlocked=loaded.blocked;
 let fishing: FishingSession|null=null;
+const recast=new RecastGuard();
+let sleepPending=false;
 let heldFish=false,transitionTime=0,focused=document.hasFocus();
 let saveElapsed=0,lastTime=performance.now(),accumulator=0,moveTimer=0;
 const keys=new Set<string>();
@@ -43,12 +45,13 @@ function save(){
   catch{saveBlocked=true;$('saveStatus').textContent='保存不可用 · 请导出';ui.showToast('自动保存暂不可用，请在设置中导出进度。')}
 }
 function dayTransition(message:string){
+  recast.finish();sleepPending=false;
   fishing=null;heldFish=false;keys.clear();ui.forceClose();ui.fishing(null);
-  transitionTime=1.7;$('transition').hidden=false;$('transition').querySelector('h2')!.textContent='第 '+state.calendar.day+' 天';
+  transitionTime=2.3;$('transition').hidden=false;$('transition').dataset.phase='night';$('transition').querySelector('h2')!.textContent='第 '+state.calendar.day+' 天';
   $('transition').querySelector('p')!.textContent=message;
 }
 function report(res:Result,x=state.player.x,y=state.player.y){
-  const level=levelOf(state),levelMessage=level>previousLevel?` · 升至 Lv.${level}！${level>=5?'石谷与秘林已开放':level>=3?'秘林已开放':''}`:'';previousLevel=level;
+  const level=levelOf(state),levelMessage=level>previousLevel?` · 升至 Lv.${level}！在地图中查看新的区域资格`:'';previousLevel=level;
   if(res.message||levelMessage)ui.showToast(res.message+levelMessage);
   if(res.ok){if(res.effect){renderer.burst(x,y,res.effect);tone(res.effect)}if(res.dayEnded)dayTransition(res.message);save();ui.hud(true)}
 }
@@ -69,6 +72,7 @@ function interact(){
   ui.showToast('走到房门、路牌、采集物或商店旁，再按 E。');
 }
 function beginFishing(){
+  if(!recast.ready)return;
   const session=startFishing(state);
   if(!session){ui.showToast(canFish(state)?'体力不足，先吃点东西吧。':'走到池塘或湖畔有标记的钓点旁。');return}
   fishing=session;keys.clear();heldFish=false;save();ui.hud(true);ui.fishing(fishing);
@@ -82,7 +86,7 @@ function useAt(x:number,y:number){
   report(farmAction(state,x,y),x,y);
 }
 function handleAction(action:string,id:string,value:string){
-  if(action==='cancelFishing'){fishing=null;heldFish=false;ui.fishing(null);ui.showToast('收起了鱼竿。');save();return}
+  if(action==='cancelFishing'){recast.finish();fishing=null;heldFish=false;ui.fishing(null);ui.showToast('收起了鱼竿，稍等片刻再抛竿。');save();return}
   if(action==='reel'){if(fishing)reel(fishing);return}
   if(transitionTime>0)return;
   if(action==='close'){ui.close();keys.clear();return}
@@ -111,7 +115,7 @@ function handleAction(action:string,id:string,value:string){
     case 'wear':if(ui.draft){res=setAppearance(state,ui.draft);if(res.ok)ui.close()}break;
     case 'assist':state.settings.fishingAssist=!state.settings.fishingAssist;res=result(true,'钓鱼辅助'+(state.settings.fishingAssist?'已开启':'已关闭'));break;
     case 'sound':state.settings.sound=!state.settings.sound;res=result(true,'音效'+(state.settings.sound?'已开启':'已关闭'));break;
-    case 'sleep':if(nearby(state)?.id==='sleep'){res=dayEnd(state);ui.forceClose()}break;
+    case 'sleep':if(nearby(state)?.id==='sleep'){ui.forceClose();keys.clear();sleepPending=true;transitionTime=.65;$('transition').dataset.phase='dusk';$('transition').hidden=false;$('transition').querySelector('h2')!.textContent='晚安，溪谷';$('transition').querySelector('p')!.textContent='收好一天的忙碌，让星光陪你入梦。';}break;
     case 'acceptCatch':res=acceptCatch(state);if(res.ok)ui.forceClose();break;
     case 'replaceCatch':res=acceptCatch(state,Number(id));if(res.ok)ui.forceClose();break;
     case 'releaseCatch':state.pendingCatch=null;ui.forceClose();res=result(true,'鱼儿游回了湖里。');break;
@@ -135,6 +139,7 @@ const directions:Record<string,Direction>={w:'up',arrowup:'up',s:'down',arrowdow
 function move(direction:Direction){const res=step(state,direction);if(res.dayEnded||res.message)report(res);ui.hud();moveTimer=.15}
 window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
+  if(key===' '||key==='e')recast.input(key,true);
   if(key==='escape'){
     event.preventDefault();keys.clear();
     if(fishing){handleAction('cancelFishing','','');return}
@@ -151,26 +156,29 @@ window.addEventListener('keydown',event=>{
   if(key===' '){const target=targetTile(state);useAt(target.x,target.y);return}
   const panels:Record<string,string>={b:'bag',m:'map',c:'catalog',j:'journal'};if(panels[key]){ui.open(panels[key]);keys.clear()}
 });
-window.addEventListener('keyup',event=>{keys.delete(event.key.toLowerCase());if(event.key===' ')heldFish=false});
-window.addEventListener('blur',()=>{focused=false;keys.clear();heldFish=false;save();lastTime=performance.now();accumulator=0});
+window.addEventListener('keyup',event=>{const key=event.key.toLowerCase();keys.delete(key);recast.input(key,false);if(key===' ')heldFish=false});
+window.addEventListener('blur',()=>{focused=false;keys.clear();heldFish=false;recast.releaseAll();save();lastTime=performance.now();accumulator=0});
 window.addEventListener('focus',()=>{focused=true;lastTime=performance.now();accumulator=0});
-document.addEventListener('visibilitychange',()=>{keys.clear();heldFish=false;save();lastTime=performance.now();accumulator=0});
+document.addEventListener('visibilitychange',()=>{keys.clear();heldFish=false;recast.releaseAll();save();lastTime=performance.now();accumulator=0});
 window.addEventListener('pagehide',save);
-document.addEventListener('pointerdown',event=>{if(fishing&&event.button===0&&(event.target as Element).closest('#fishingPanel,#game')){heldFish=true;reel(fishing)}});
-window.addEventListener('pointerup',()=>heldFish=false);
+document.addEventListener('pointerdown',event=>{if(event.button===0)recast.input('pointer',true);if(fishing&&event.button===0&&(event.target as Element).closest('#fishingPanel,#game')){heldFish=true;reel(fishing)}});
+window.addEventListener('pointerup',()=>{heldFish=false;recast.input('pointer',false)});
 canvas.addEventListener('click',event=>{
   if(fishing)return;
   const rect=canvas.getBoundingClientRect(),x=Math.floor((event.clientX-rect.left)/rect.width*32),y=Math.floor((event.clientY-rect.top)/rect.height*20);
   useAt(x,y);canvas.focus({preventScroll:true});
 });
 function simulate(dt:number){
-  if(transitionTime>0){transitionTime=Math.max(0,transitionTime-dt);if(!transitionTime)$('transition').hidden=true;return}
+  recast.tick(dt);
+  if(transitionTime>0){transitionTime=Math.max(0,transitionTime-dt);if(!sleepPending)$('transition').dataset.phase=transitionTime<.7?'dawn':'night';if(!transitionTime){if(sleepPending){sleepPending=false;report(dayEnd(state));}else $('transition').hidden=true;}return}
   if(ui.panel)return;
   const timeResult=advanceTime(state,dt);if(timeResult){report(timeResult);if(timeResult.dayEnded)return}
   if(fishing){
+    const previousStage=fishing.stage;
     tickFishing(fishing,dt,heldFish);
-    if(fishing.stage==='won'){state.pendingCatch=fishing.fish;fishing=null;heldFish=false;const res=acceptCatch(state);if(!res.ok){save();ui.open('catch')}else report(res)}
-    else if(fishing.stage==='lost'){fishing=null;heldFish=false;ui.showToast('鱼游走了，下次再试。');save()}
+    if(previousStage!=='bite'&&fishing.stage==='bite')tone('harvest');
+    if(fishing.stage==='won'){recast.finish();state.pendingCatch=fishing.fish;fishing=null;heldFish=false;const res=acceptCatch(state);if(!res.ok){save();ui.open('catch')}else report(res)}
+    else if(fishing.stage==='lost'){recast.finish();fishing=null;heldFish=false;ui.showToast('鱼游走了，收好线再试一次。');save()}
   }else{
     moveTimer-=dt;const direction=Array.from(keys).at(-1);if(direction&&moveTimer<=0)move(directions[direction]);
   }

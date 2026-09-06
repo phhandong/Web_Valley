@@ -13,7 +13,7 @@ function plotState(id='radish'){const s=fresh();locate(s,'farm',12,8);s.selected
 class MemoryStorage{data=new Map<string,string>();getItem(k:string){return this.data.get(k)??null}setItem(k:string,v:string){this.data.set(k,v)}}
 
 describe('content and unified map',()=>{
-  it('ships the complete content catalog',()=>{expect(CROPS).toHaveLength(8);expect(FISH).toHaveLength(12);expect(FORAGE).toHaveLength(6);expect(RECIPES).toHaveLength(8);expect(Object.keys(SCENES)).toHaveLength(7)});
+  it('ships the complete content catalog',()=>{expect(CROPS).toHaveLength(8);expect(FISH).toHaveLength(14);expect(FORAGE).toHaveLength(6);expect(RECIPES).toHaveLength(8);expect(Object.keys(SCENES)).toHaveLength(9)});
   it('all purchasable products cost more than their resale value',()=>{for(const i of Object.values(ITEMS))if(i.buy)expect(i.sell).toBeLessThan(i.buy)});
   it('all exits, services, fish spots and daily recovery food are reachable',()=>{
     for(const scene of Object.values(SCENES)){

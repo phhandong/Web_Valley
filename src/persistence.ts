@@ -3,6 +3,7 @@ import { initialState } from './engine';
 import { add } from './inventory';
 import { SCENES,passable,harvestable,objectKey } from './world';
 import type { GameStateV2 } from './types';
+import { AREAS,LEVEL_XP } from './progression';
 export const SAVE_KEY='creekside-farm-save-v2', BACKUP_KEY=`${SAVE_KEY}-backup`, LEGACY_KEY='creekside-farm-save-v1';
 export interface StorageLike {getItem(key:string):string|null;setItem(key:string,value:string):void}
 const obj=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -16,7 +17,15 @@ export function validSave(raw:unknown):raw is GameStateV2{
   if(!int(s.rng,0,4294967295)||!obj(s.calendar)||!int(s.calendar.day,1)||!num(s.calendar.minute,360,1559.999999)||!['sun','rain','snow'].includes(s.calendar.weather))return false;
   const resourceKeys=new Set(Object.values(SCENES).flatMap(scene=>scene.objects.filter(harvestable).map(o=>objectKey(scene.id,o))));
   if(!Array.isArray(s.clearedObjects)||!s.clearedObjects.every((k:unknown)=>typeof k==='string'&&resourceKeys.has(k))||new Set(s.clearedObjects).size!==s.clearedObjects.length)return false;
-  if(!obj(s.player)||!Object.hasOwn(SCENES,s.player.scene)||!int(s.player.x,1,30)||!int(s.player.y,1,18)||!['up','down','left','right'].includes(s.player.direction)||!passable(s.player.scene,s.player.x,s.player.y,s.clearedObjects))return false;
+  const treeKeys=new Set(Object.values(SCENES).flatMap(scene=>scene.objects.filter(o=>o.kind==='tree').map(o=>objectKey(scene.id,o))));
+  const allNodes=new Set(Object.values(SCENES).flatMap(scene=>scene.nodes.map(n=>`${scene.id}:${n.id}`)));
+  const events=new Set(Object.values(SCENES).flatMap(scene=>scene.objects.filter(o=>o.action?.startsWith('event:')).map(o=>o.action!.slice(6))));
+  if(!obj(s.ecology)||s.ecology.version!==1||!obj(s.ecology.trees)||!obj(s.ecology.nodeReady)||!obj(s.ecology.eventReady))return false;
+  if(!Object.entries(s.ecology.trees).every(([key,age])=>treeKeys.has(key)&&int(age,0,6)))return false;
+  if(!Object.entries(s.ecology.nodeReady).every(([key,day])=>allNodes.has(key)&&int(day,1,s.calendar.day+5)))return false;
+  if(!Object.entries(s.ecology.eventReady).every(([key,day])=>events.has(key)&&int(day,1,s.calendar.day+3)))return false;
+  if(s.clearedObjects.some((key:string)=>treeKeys.has(key)&&s.ecology.trees[key]===6))return false;
+  if(!obj(s.player)||!Object.hasOwn(SCENES,s.player.scene)||!int(s.player.x,1,30)||!int(s.player.y,1,18)||!['up','down','left','right'].includes(s.player.direction)||!passable(s.player.scene,s.player.x,s.player.y,s.clearedObjects,s.ecology.trees))return false;
   const a=s.player.appearance,v=s.player.vitals;
   if(!obj(a)||!int(a.skin,0,5)||!int(a.hair,0,5)||!int(a.outfit,0,7)||!int(a.hat,-1,5)||!obj(v)||!['health','stamina','hunger'].every(k=>num(v[k],0,100)))return false;
   if(!obj(s.upgrades)||!['farm','tools','rod','bag'].every(k=>int(s.upgrades[k],0,2)))return false;
@@ -38,9 +47,10 @@ export function validSave(raw:unknown):raw is GameStateV2{
   if(!obj(s.unlocked)||!uniqueNumbers(s.unlocked.outfits,7)||!uniqueNumbers(s.unlocked.hats,5)||!s.unlocked.outfits.includes(a.outfit)||(a.hat!==-1&&!s.unlocked.hats.includes(a.hat)))return false;
   if(!obj(s.settings)||typeof s.settings.fishingAssist!=='boolean'||typeof s.settings.sound!=='boolean')return false;
   if(typeof s.settings.music!=='boolean'||!int(s.settings.volume,0,100)||typeof s.settings.hud!=='boolean'||!int(s.settings.hudWidth,220,360))return false;
-  if(!obj(s.progression)||!int(s.progression.xp)||!int(s.progression.fishingRotation)||!Array.isArray(s.progression.areas)||!s.progression.areas.every((a:unknown)=>['grove','quarry'].includes(a as string))||new Set(s.progression.areas).size!==s.progression.areas.length)return false;
-  if(!Array.isArray(s.progression.forestEvents)||!s.progression.forestEvents.every((e:unknown)=>['trail1','trail2','trail3','cache','fox','spring','groveGift','quarryGift'].includes(e as string))||new Set(s.progression.forestEvents).size!==s.progression.forestEvents.length)return false;
-  if(['grove','quarry'].includes(s.player.scene)&&!s.progression.areas.includes(s.player.scene)&&s.progression.xp<(s.player.scene==='grove'?100:280))return false;
+  if(!obj(s.progression)||!int(s.progression.xp)||!int(s.progression.fishingRotation)||!Array.isArray(s.progression.areas)||!s.progression.areas.every((a:unknown)=>AREAS.some(area=>area.id===a))||new Set(s.progression.areas).size!==s.progression.areas.length)return false;
+  if(!Array.isArray(s.progression.forestEvents)||!s.progression.forestEvents.every((e:unknown)=>typeof e==='string'&&events.has(e))||new Set(s.progression.forestEvents).size!==s.progression.forestEvents.length)return false;
+  const area=AREAS.find(a=>a.id===s.player.scene);
+  if(area&&!s.progression.areas.includes(area.id)&&s.progression.xp<LEVEL_XP[area.level-1])return false;
   if(s.pendingCatch!==null&&!(typeof s.pendingCatch==='string'&&ITEMS[s.pendingCatch]?.kind==='fish'))return false;
   return true;
 }
@@ -67,6 +77,13 @@ export function parseSave(text:string):GameStateV2|null{try{
     if(obj(value.settings))value.settings={music:true,volume:35,hud:false,hudWidth:260,...value.settings};
     if(!Object.hasOwn(value,'progression'))value.progression={xp:0,areas:[],forestEvents:[],fishingRotation:0};
     else if(obj(value.progression))value.progression={fishingRotation:0,...value.progression};
+    if(!Object.hasOwn(value,'ecology')){
+      value.ecology={version:1,trees:{},nodeReady:{},eventReady:{}};
+      if(obj(value.progression)&&int(value.progression.xp))value.progression.xp*=3;
+      if(Array.isArray(value.clearedObjects))for(const key of value.clearedObjects){
+        if(Object.values(SCENES).some(scene=>scene.objects.some(o=>o.kind==='tree'&&objectKey(scene.id,o)===key)))value.ecology.trees[key]=0;
+      }
+    }
   }
   return validSave(value)?value:migrateV1(value);
 }catch{return null}}

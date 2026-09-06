@@ -3,13 +3,16 @@ import { add,cloneBag,exchange,quantity,remove,transfer } from './inventory';
 import { SCENES,initialWeeds,isUnlockedPlot,nearby,passable,plotIndex,resourceAt,objectDistance,objectKey } from './world';
 import { areaOpen,AREAS,gainXP } from './progression';
 import type { Appearance,GameStateV2,Result,RNG,Season } from './types';
+import { newEcology,growWorld } from './ecology';
+import { ECOLOGY } from './balance';
+import { treeStage } from './world';
 export const seasonOf=(day:number):Season=>SEASONS[(2+Math.floor((day-1)/14))%4];
 export const seasonDay=(day:number)=>(day-1)%14+1;
 export const yearOf=(day:number)=>Math.floor((day-1)/56)+1;
 export const clockText=(minute:number)=>`${String(Math.floor(minute/60)%24).padStart(2,'0')}:${String(Math.floor(minute%60/10)*10).padStart(2,'0')}`;
 export function random(state:GameStateV2):number{state.rng=(Math.imul(state.rng,1664525)+1013904223)>>>0;return state.rng/4294967296;}
 export function initialState(seed=(Date.now()>>>0)):GameStateV2 {
-  const state:GameStateV2={version:2,weeds:initialWeeds(),clearedObjects:[],rng:seed,calendar:{day:1,minute:360,weather:'sun'},player:{scene:'farm',x:10,y:9,direction:'right',appearance:{skin:0,hair:0,outfit:0,hat:0},vitals:{health:100,stamina:100,hunger:100}},gold:50,
+  const state:GameStateV2={version:2,ecology:newEcology(),weeds:initialWeeds(),clearedObjects:[],rng:seed,calendar:{day:1,minute:360,weather:'sun'},player:{scene:'farm',x:10,y:9,direction:'right',appearance:{skin:0,hair:0,outfit:0,hat:0},vitals:{health:100,stamina:100,hunger:100}},gold:50,
     inventory:{capacity:24,slots:[{id:'seed_radish',count:5},{id:'ration',count:3}]},chest:{capacity:120,slots:[]},shipping:[],legacyPending:0,plots:Array.from({length:120},()=>({tilled:false,crop:null})),selectedTool:'hoe',selectedSeed:'radish',upgrades:{farm:0,tools:0,rod:0,bag:0},
     stats:{planted:0,harvested:0,shipped:0,cooked:0,caught:0,orders:0,revenue:0,reputation:0,boughtAfterShipping:false},discoveries:{},gathered:[],orders:[],unlocked:{outfits:[0,1,2],hats:[0]},settings:{fishingAssist:false,sound:true,music:true,volume:35,hud:false,hudWidth:260},progression:{xp:0,areas:[],forestEvents:[],fishingRotation:0},pendingCatch:null,lastSettlement:0};
   state.orders=generateOrders(state);return state;
@@ -25,7 +28,7 @@ export function discover(state:GameStateV2,id:string,count=1){
   if(state.stats.orders>=10)unlock(state.unlocked.outfits,7);
   if(FISH.filter(f=>state.discoveries[f.id]).length>=12)unlock(state.unlocked.hats,5);
 }
-export function availableForage(state:GameStateV2,scene=state.player.scene){return SCENES[scene].nodes.filter(n=>n.kind!=='forage'||FORAGE[n.index].seasons.includes(seasonOf(state.calendar.day)));}
+export function availableForage(state:GameStateV2,scene=state.player.scene){return SCENES[scene].nodes.filter(n=>(state.ecology.nodeReady[`${scene}:${n.id}`]??0)<=state.calendar.day&&(n.kind!=='forage'||FORAGE[n.index].seasons.includes(seasonOf(state.calendar.day))));}
 export function generateOrders(state:GameStateV2,rng:RNG=()=>random(state)){
   const season=seasonOf(state.calendar.day);
   const eligible=['radish','berry','herb',...Object.keys(state.discoveries).filter(id=>['crop','fish','forage','meal'].includes(ITEMS[id]?.kind)&&(!CROPS.find(c=>c.id===id)||CROPS.find(c=>c.id===id)!.seasons.includes(season)))];
@@ -51,6 +54,7 @@ export function dayEnd(state:GameStateV2,rescue=false,rng:RNG=()=>random(state))
   if(rescue){v.health=Math.max(v.health,50);v.stamina=Math.max(v.stamina,50);v.hunger=Math.max(v.hunger,30)}
   else {v.health=Math.min(100,v.health+30);v.stamina=100;v.hunger=Math.max(0,v.hunger-10)}
   state.player.scene='home';state.player.x=10;state.player.y=8;state.player.direction='down';state.orders=generateOrders(state,rng);
+  growWorld(state);
   return {ok:true,dayEnded:true,message:rescue?`被送回了小屋 · 救援费 ${fee} G · 出货收入 ${income} G`:`新的一天 · 出货收入 ${income} G`};
 }
 export function advanceTime(state:GameStateV2,seconds:number,rng?:RNG):Result|null {
@@ -77,11 +81,13 @@ export function harvestResource(state:GameStateV2,x:number,y:number):Result{
   if(!object)return result(false,'这里没有可砍伐的树木或可开采的岩石');
   if(objectDistance(state.player.x,state.player.y,object)>1)return result(false,'走到树木或岩石旁边再使用工具');
   const tree=object.kind==='tree',rule=RESOURCE_YIELDS[tree?'tree':'rock'];
+  if(tree&&treeStage(state,state.player.scene,object)!=='mature')return result(false,'这棵树还在生长，长成大树后才能砍伐');
   if(state.selectedTool!==rule.tool)return result(false,tree?'切换到斧头（6）砍树':'切换到石镐（7）挖石头');
   const count=rule.count+state.upgrades.tools*2,bag=cloneBag(state.inventory);
   if(!add(bag,rule.item,count))return result(false,'背包满了，先腾出材料空间');
   if(!spend(state,rule.cost))return result(false,'体力不足，打开背包吃点东西再来');
   state.inventory=bag;state.clearedObjects.push(objectKey(state.player.scene,object));discover(state,rule.item,count);
+  if(tree)state.ecology.trees[objectKey(state.player.scene,object)]=0;
   return result(true,`${tree?'砍倒了树木':'敲碎了岩石'} · ${ITEMS[rule.item].name} +${count}`,'harvest');
 }
 export function farmAction(state:GameStateV2,x:number,y:number):Result{
@@ -141,7 +147,7 @@ export function gather(state:GameStateV2,x:number,y:number):Result{
   const id=node.kind==='forage'?FORAGE[node.index].id:node.kind,count=node.kind==='forage'?1:3+state.upgrades.tools;
   const draft=cloneBag(state.inventory);if(!add(draft,id,count))return result(false,'背包满了，先整理一下');
   if(node.kind!=='forage'&&!spend(state,3))return result(false,'体力不足，附近的果实可以免费采摘');
-  state.inventory=draft;state.gathered.push(key);discover(state,id,count);return result(true,`获得 ${ITEMS[id].name} × ${count}`,'harvest');
+  state.inventory=draft;state.gathered.push(key);state.ecology.nodeReady[key]=state.calendar.day+(state.player.scene==='farm'?1:node.kind==='forage'?ECOLOGY.forageDays:ECOLOGY.materialDays);discover(state,id,count);return result(true,`获得 ${ITEMS[id].name} × ${count}`,'harvest');
 }
 export function eat(state:GameStateV2,id:string):Result{
   const food=ITEMS[id]?.food;if(!food||quantity(state.inventory,id)<1)return result(false,'这个物品不能食用');
@@ -205,12 +211,12 @@ export function chestTransfer(state:GameStateV2,id:string,count:number,deposit:b
 export function travel(state:GameStateV2,id:string):Result{
   const exit=SCENES[state.player.scene].exits.find(e=>e.id===id);if(!exit||Math.abs(exit.x-state.player.x)+Math.abs(exit.y-state.player.y)>1)return result(false,'先走到出口旁');
   if(!areaOpen(state,exit.to)){const area=AREAS.find(a=>a.id===exit.to)!;return result(false,`${area.name}需要 Lv.${area.level}，或购买 ${area.price} G 通行证`)}
-  if(!passable(exit.to,...exit.spawn,state.clearedObjects))return result(false,'这条路暂时无法通行');
+  if(!passable(exit.to,...exit.spawn,state.clearedObjects,state.ecology.trees))return result(false,'这条路暂时无法通行');
   state.player.scene=exit.to;[state.player.x,state.player.y]=exit.spawn;return result(true,`来到${SCENES[exit.to].name}`);
 }
 export function step(state:GameStateV2,direction:GameStateV2['player']['direction']):Result{
   const p=state.player;p.direction=direction;const [dx,dy]=({up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]})[direction];
-  if(!passable(p.scene,p.x+dx,p.y+dy,state.clearedObjects))return result(false,'');p.x+=dx;p.y+=dy;
+  if(!passable(p.scene,p.x+dx,p.y+dy,state.clearedObjects,state.ecology.trees))return result(false,'');p.x+=dx;p.y+=dy;
   if(SCENES[p.scene].thorns.some(([x,y])=>x===p.x&&y===p.y)){p.vitals.health=Math.max(0,p.vitals.health-5);if(p.vitals.health===0)return dayEnd(state,true);return result(true,'荆棘划伤了你 · 生命 -5')}
   return result(true,'');
 }
