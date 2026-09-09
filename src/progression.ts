@@ -38,7 +38,7 @@ export function forestEvent(s:GameStateV2,id:string):Result{
     s.gold+=60;s.stats.revenue+=60;gainXP(s,30);message='解开林间宝箱！金币 +60 · 经验 +30';
   }else if(id==='fox'){
     if(quantity(s.inventory,'berry')<2)return{ok:false,message:'小狐狸嗅了嗅你的行囊：用 2 颗莓果换它找到的 25 G。'};
-    remove(s.inventory,'berry',2);s.gold+=25;s.stats.revenue+=25;gainXP(s,15);message='小狐狸留下亮闪闪的钱币。金币 +25 · 经验 +15';
+    remove(s.inventory,'berry',2);s.gold+=25;s.stats.revenue+=25;gainXP(s,15);s.encounters.foxTrades++;message='小狐狸留下亮闪闪的钱币。金币 +25 · 经验 +15';
   }else if(id==='spring'){
     s.player.vitals.health=Math.min(100,s.player.vitals.health+20);s.player.vitals.stamina=Math.min(100,s.player.vitals.stamina+25);message='在清泉旁歇了片刻。生命 +20 · 体力 +25';
   }else if(id==='groveGift'||id==='quarryGift'){

@@ -7,7 +7,7 @@ export const initialWeeds=()=>Array.from({length:120},(_,i)=>i).filter(i=>(i*7+M
 export type ObjectKind='house'|'tree'|'rock'|'water'|'shop'|'bed'|'wardrobe'|'kitchen'|'chest'|'shipping'|'board'|'lamp'|'bench';
 export interface WorldObject {id:string;kind:ObjectKind;x:number;y:number;w:number;h:number;label?:string;action?:string;solid?:boolean}
 export interface Exit {id:string;x:number;y:number;label:string;to:SceneId;spawn:[number,number]}
-export interface Node {id:string;x:number;y:number;kind:'forage'|'wood'|'stone';index:number}
+export interface Node {id:string;x:number;y:number;kind:'forage'|'wood'|'stone'|'shell'|'ore';index:number}
 export interface SceneDefinition {id:SceneId;name:string;subtitle:string;objects:WorldObject[];exits:Exit[];nodes:Node[];thorns:[number,number][];fishing:[number,number][]}
 const tree=(id:string,x:number,y:number):WorldObject=>({id,kind:'tree',x,y,w:2,h:2,solid:true});
 export const SCENES:Record<SceneId,SceneDefinition>={
@@ -75,19 +75,28 @@ export const SCENES:Record<SceneId,SceneDefinition>={
     {id:'sea',kind:'water',x:13,y:3,w:18,h:15},tree('c1',3,4),tree('c2',8,3),
     {id:'coastseat',kind:'bench',x:4,y:13,w:3,h:1,solid:true},
     {id:'tidal',kind:'chest',x:9,y:7,w:1,h:1,label:'潮汐漂流箱',action:'event:coastGift',solid:true},
-    {id:'lighthouse',kind:'lamp',x:10,y:15,w:1,h:1}
+    {id:'lighthouse',kind:'lamp',x:10,y:15,w:1,h:1},
+    {id:'pier',kind:'board',x:10,y:17,w:1,h:1,label:'旧栈道 · 修复',action:'repair:pier',solid:false}
   ],exits:[{id:'lake',x:6,y:1,label:'↑ 湖畔',to:'lake',spawn:[6,17]}],nodes:[
-    {id:'driftwood',x:5,y:9,kind:'wood',index:0},{id:'pebbles',x:9,y:12,kind:'stone',index:0},{id:'herbs',x:3,y:16,kind:'forage',index:5}
+    {id:'driftwood',x:5,y:9,kind:'wood',index:0},{id:'pebbles',x:9,y:12,kind:'stone',index:0},{id:'herbs',x:3,y:16,kind:'forage',index:5},
+    {id:'shell1',x:10,y:5,kind:'shell',index:0},{id:'shell2',x:9,y:10,kind:'shell',index:0},{id:'shell3',x:9,y:16,kind:'shell',index:0}
   ],thorns:[],fishing:[[12,6],[12,9],[12,12],[12,15]]},
   ridge:{id:'ridge',name:'云杉山脊',subtitle:'越过石谷，在云影与松风间歇脚',objects:[
     ...[[5,3],[11,2],[18,3],[25,4],[6,15],[22,15]].map(([x,y],i)=>tree(`pine${i}`,x,y)),
     {id:'alpine',kind:'water',x:18,y:9,w:8,h:4},
     {id:'outlook',kind:'board',x:11,y:7,w:2,h:2,label:'云端观景台',action:'event:ridgeView',solid:true},
-    {id:'ore',kind:'rock',x:27,y:15,w:2,h:2,solid:true}
+    {id:'ore',kind:'rock',x:27,y:15,w:2,h:2,solid:true},
+    {id:'shelter',kind:'bench',x:14,y:5,w:3,h:2,label:'山间休憩亭 · 修复',action:'repair:shelter',solid:false}
   ],exits:[{id:'quarry',x:1,y:10,label:'← 石谷',to:'quarry',spawn:[29,10]}],nodes:[
     {id:'nuts',x:8,y:6,kind:'forage',index:3},{id:'herb',x:14,y:13,kind:'forage',index:5},
-    {id:'stone1',x:7,y:12,kind:'stone',index:0},{id:'stone2',x:28,y:9,kind:'stone',index:0}
-  ],thorns:[[16,15],[17,15]],fishing:[[20,8],[23,8]]}
+    {id:'stone1',x:7,y:12,kind:'stone',index:0},{id:'stone2',x:28,y:9,kind:'stone',index:0},
+    {id:'quartz1',x:27,y:7,kind:'ore',index:0},{id:'quartz2',x:15,y:15,kind:'ore',index:0}
+  ],thorns:[[16,15],[17,15]],fishing:[[20,8],[23,8]]},
+  cave:{id:'cave',name:'潮痕洞穴',subtitle:'沿着潮水留下的纹路',objects:[
+    {id:'cavepool',kind:'water',x:13,y:12,w:10,h:4},
+    {id:'caverock1',kind:'rock',x:13,y:4,w:3,h:3,solid:true,action:'caveDecoration'},
+    {id:'caverock2',kind:'rock',x:25,y:12,w:3,h:3,solid:true,action:'caveDecoration'}
+  ],exits:[],nodes:[],thorns:[],fishing:[]}
 };
 export const farmDimensions=(level:number)=>[[6,5],[9,8],[12,10]][level];
 export function plotIndex(x:number,y:number){return x>=FARM.x&&x<FARM.x+12&&y>=FARM.y&&y<FARM.y+10?(y-FARM.y)*12+x-FARM.x:-1;}
@@ -100,9 +109,10 @@ export const treeStage=(state:GameStateV2,scene:SceneId,o:WorldObject)=>{
 };
 export const objectDistance=(x:number,y:number,o:WorldObject)=>Math.max(o.x-x,0,x-(o.x+o.w-1))+Math.max(o.y-y,0,y-(o.y+o.h-1));
 export function resourceAt(state:GameStateV2,x:number,y:number){return SCENES[state.player.scene].objects.find(o=>harvestable(o)&&(!state.clearedObjects.includes(objectKey(state.player.scene,o))||(o.kind==='tree'&&state.ecology.trees[objectKey(state.player.scene,o)]!==undefined))&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);}
-export function passable(scene:SceneId,x:number,y:number,cleared:readonly string[]=[],trees:Record<string,number>={}){
+export function passable(scene:SceneId,x:number,y:number,cleared:readonly string[]=[],trees:Record<string,number>={},machines:GameStateV2['facilities']['machines']=[]){
   if(x<1||y<1||x>=COLS-1||y>=ROWS-1)return false;
   if(scene==='home'&&(x<5||x>26||y<3||y>17))return false;
+  if(scene==='farm'&&machines.some(m=>m.kind!=='sprinkler'&&m.x===x&&m.y===y))return false;
   return !SCENES[scene].objects.some(o=>!(harvestable(o)&&cleared.includes(objectKey(scene,o)))&&!(o.kind==='tree'&&(trees[objectKey(scene,o)]??6)<ECOLOGY.matureTreeDay)&&(o.solid||o.kind==='water')&&x>=o.x&&y>=o.y&&x<o.x+o.w&&y<o.y+o.h);
 }
 export function nearby(state:GameStateV2){
@@ -110,6 +120,6 @@ export function nearby(state:GameStateV2){
   const exit=map.exits.find(e=>Math.abs(e.x-x)+Math.abs(e.y-y)<=1);
   if(exit)return {kind:'exit' as const,label:exit.label,id:exit.id};
   const candidates=map.objects.filter(o=>o.action).map(o=>({o,d:Math.max(o.x-x,0,x-(o.x+o.w-1))+Math.max(o.y-y,0,y-(o.y+o.h-1))})).filter(a=>a.d<=1).sort((a,b)=>a.d-b.d);
-  if(candidates.length)return {kind:'object' as const,label:candidates[0].o.label!,id:candidates[0].o.action!};
+  if(candidates.length){const o=candidates[0].o;return {kind:'object' as const,label:o.action?.startsWith('repair:')&&state.fieldwork.repairs.includes(o.action.slice(7))?o.label!.replace(' · 修复',' · 已修复'):o.label!,id:o.action!};}
   return null;
 }

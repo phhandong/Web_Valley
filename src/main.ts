@@ -1,3 +1,6 @@
+import { WorkController } from './work-session';
+import { grassAt,workTarget,labourNode } from './fieldwork';
+import { clearGrass,repairFacility,restAtShelter } from './engine';
 import './style.css';
 import { CROPS,ITEMS,TOOLS } from './content';
 import { UI } from './ui';
@@ -12,11 +15,20 @@ import { ValleyMusic } from './music';
 import { sortInventory } from './inventory';
 import { harvestResource } from './engine';
 import { resourceAt } from './world';
+import { nearbyInteraction,dynamicNodes } from './interactions';
+import { talk,gift,storyAction,investigateStory,nodeReachable } from './villagers';
+import { investigateEncounter } from './encounters';
+import { craftMachine,placeMachine,storeMachine,startProcessing,collectMachine,placementError,machineBusy } from './facilities';
+import { MACHINES } from './life-content';
+import { drawPlacement,type PlacementDraft } from './life-art';
+import type { MachineKind,VillagerId } from './types';
 
 const loaded=loadGame(localStorage);
 let state=loaded.state,saveBlocked=loaded.blocked;
 let fishing: FishingSession|null=null;
+let placement:PlacementDraft|null=null;
 const recast=new RecastGuard();
+const work=new WorkController();
 let sleepPending=false;
 let heldFish=false,transitionTime=0,focused=document.hasFocus();
 let saveElapsed=0,lastTime=performance.now(),accumulator=0,moveTimer=0;
@@ -45,7 +57,7 @@ function save(){
   catch{saveBlocked=true;$('saveStatus').textContent='保存不可用 · 请导出';ui.showToast('自动保存暂不可用，请在设置中导出进度。')}
 }
 function dayTransition(message:string){
-  recast.finish();sleepPending=false;
+  work.cancel();recast.finish();sleepPending=false;
   fishing=null;heldFish=false;keys.clear();ui.forceClose();ui.fishing(null);
   transitionTime=2.3;$('transition').hidden=false;$('transition').dataset.phase='night';$('transition').querySelector('h2')!.textContent='第 '+state.calendar.day+' 天';
   $('transition').querySelector('p')!.textContent=message;
@@ -57,7 +69,9 @@ function report(res:Result,x=state.player.x,y=state.player.y){
 }
 function interact(){
   if(ui.panel||transitionTime||fishing)return;
-  const near=nearby(state);
+  work.cancel();
+  const near=nearbyInteraction(state);
+  if(near?.kind==='dynamic'){interactDynamic(near.id);return;}
   if(near?.kind==='exit'){const exit=SCENES[state.player.scene].exits.find(e=>e.id===near.id)!;if(!areaOpen(state,exit.to)){ui.open('regions');keys.clear();return}report(travel(state,near.id));return}
   if(near?.kind==='object'){
     if(near.id.startsWith('event:')){report(forestEvent(state,near.id.slice(6)));return}
@@ -65,13 +79,28 @@ function interact(){
     ui.open(near.id);keys.clear();return;
   }
   const n=availableForage(state).filter(n=>!state.gathered.includes(state.player.scene+':'+n.id)).find(n=>Math.abs(n.x-state.player.x)+Math.abs(n.y-state.player.y)<=1);
-  if(n){report(gather(state,n.x,n.y),n.x,n.y);return}
+  if(n){if(labourNode(n))beginWork(n.x,n.y);else report(gather(state,n.x,n.y),n.x,n.y);return}
   const target=targetTile(state);
-  if(resourceAt(state,target.x,target.y)){report(harvestResource(state,target.x,target.y),target.x,target.y);return}
+  if(workTarget(state,target.x,target.y)){beginWork(target.x,target.y);return}
   if(canFish(state)){beginFishing();return}
   ui.showToast('走到房门、路牌、采集物或商店旁，再按 E。');
 }
+function interactDynamic(id:string){
+  work.cancel();keys.clear();
+  if(id.startsWith('npc:')||id.startsWith('machine:')){ui.open(id);return;}
+  report(id.startsWith('story:')?investigateStory(state,id):investigateEncounter(state,id));
+}
+function cancelPlacement(){placement=null;$('placementPanel').hidden=true;keys.clear();canvas.focus({preventScroll:true});}
+function previewPlacement(){
+  if(!placement)return;
+  const error=placementError(state,placement.kind,placement.x,placement.y,placement.movingId);
+  placement.error=error;$('placementTitle').textContent=(placement.movingId?'搬动 · ':'布置 · ')+MACHINES[placement.kind].name;
+  $('placementHint').textContent=error||`格子 ${placement.x}, ${placement.y} 可以摆放${placement.kind==='hive'?' · 金色区域为两格采蜜范围':placement.kind==='sprinkler'?' · 蓝色区域为四格浇水范围':''}`;
+  $('placementPanel').dataset.valid=String(!error);$('placementPanel').querySelector<HTMLButtonElement>('[data-action="placeConfirm"]')!.disabled=!!error;
+}
+function beginWork(x:number,y:number){const res=work.start(state,x,y);keys.clear();if(res.message)ui.showToast(res.message);}
 function beginFishing(){
+  work.cancel();
   if(!recast.ready)return;
   const session=startFishing(state);
   if(!session){ui.showToast(canFish(state)?'体力不足，先吃点东西吧。':'走到池塘或湖畔有标记的钓点旁。');return}
@@ -79,22 +108,43 @@ function beginFishing(){
 }
 function useAt(x:number,y:number){
   if(ui.panel||transitionTime||fishing)return;
+  const dynamic=dynamicNodes(state).find(n=>n.scene===state.player.scene&&n.x===x&&n.y===y&&nodeReachable(state,n));if(dynamic){interactDynamic(dynamic.id);return;}
   if(state.selectedTool==='rod'){beginFishing();return}
-  if(resourceAt(state,x,y)){report(harvestResource(state,x,y),x,y);return}
+  if(workTarget(state,x,y)){beginWork(x,y);return}
+  if(grassAt(state,x,y)){report(clearGrass(state,x,y),x,y);return}
   const n=availableForage(state).find(n=>n.x===x&&n.y===y&&!state.gathered.includes(state.player.scene+':'+n.id));
   if(n){report(gather(state,x,y),x,y);return}
   report(farmAction(state,x,y),x,y);
 }
 function handleAction(action:string,id:string,value:string){
+  if(action==='placeCancel'){cancelPlacement();return;}
+  if(action==='placeConfirm'){if(placement){const res=placeMachine(state,placement.kind,placement.x,placement.y,placement.movingId);report(res);if(res.ok)cancelPlacement();else previewPlacement();}return;}
+  if(placement){if(action==='close')cancelPlacement();return;}
+  if(action==='placeStart'||action==='moveMachine'){
+    if(fishing||transitionTime||state.player.scene!=='farm'){ui.showToast('回到农场，结束当前动作后再布置。');return;}
+    const m=action==='moveMachine'?state.facilities.machines.find(m=>m.id===Number(id)):undefined;
+    if(action==='moveMachine'&&(!m||machineBusy(m))){ui.showToast('先完成生产并领取产物，再搬动。');return;}
+    const kind=m?.kind??id as MachineKind;if(!MACHINES[kind]||!m&&!state.facilities.stored[kind])return;
+    work.cancel();keys.clear();ui.forceClose();placement={kind,x:m?.x??state.player.x,y:m?.y??state.player.y,movingId:m?.id,error:''};$('placementPanel').hidden=false;previewPlacement();canvas.focus({preventScroll:true});return;
+  }
   if(action==='cancelFishing'){recast.finish();fishing=null;heldFish=false;ui.fishing(null);ui.showToast('收起了鱼竿，稍等片刻再抛竿。');save();return}
   if(action==='reel'){if(fishing)reel(fishing);return}
   if(transitionTime>0)return;
   if(action==='close'){ui.close();keys.clear();return}
-  if(action==='open'){if(fishing)return;ui.open(id);keys.clear();return}
-  if(action==='tool'){if(ui.panel||fishing)return;state.selectedTool=id as Tool;ui.hud(true);save();return}
+  if(action==='open'){if(fishing)return;work.cancel();ui.open(id);keys.clear();return}
+  if(action==='tool'){if(ui.panel||fishing)return;work.cancel();state.selectedTool=id as Tool;ui.hud(true);save();return}
   if(action==='selectSeed'){state.selectedSeed=id.slice(5);state.selectedTool='seed';report(result(true,'已选择'+ITEMS[id].name));ui.close();return}
   let res:Result|null=null;const count=Number(value);
   switch(action){
+    case 'talk':res=talk(state,id as VillagerId);break;
+    case 'gift':res=gift(state,id as VillagerId,value);if(res.ok)ui.open('npc:'+id);break;
+    case 'story':res=storyAction(state,id as VillagerId);break;
+    case 'craftMachine':res=craftMachine(state,id as MachineKind);break;
+    case 'storeMachine':res=storeMachine(state,Number(id));if(res.ok)ui.open('facilities');break;
+    case 'process':res=startProcessing(state,Number(id),value);break;
+    case 'collectMachine':res=collectMachine(state,Number(id));break;
+    case 'repair':res=repairFacility(state,id);break;
+    case 'rest':res=restAtShelter(state);break;
     case 'sortBag':res=result(sortInventory(state.inventory),'背包已整理，同类物品已合并');break;
     case 'resizeHud':state.settings.hudWidth=Math.max(220,Math.min(360,state.settings.hudWidth+count));res=result(true,'');break;
     case 'purchaseArea':res=purchaseArea(state,id);break;
@@ -136,12 +186,19 @@ $<HTMLInputElement>('importFile').addEventListener('change',async event=>{
   ui.importDraft=parsed;ui.open('import');
 });
 const directions:Record<string,Direction>={w:'up',arrowup:'up',s:'down',arrowdown:'down',a:'left',arrowleft:'left',d:'right',arrowright:'right'};
-function move(direction:Direction){const res=step(state,direction);if(res.dayEnded||res.message)report(res);ui.hud();moveTimer=.15}
+function move(direction:Direction){work.cancel();const res=step(state,direction);if(res.dayEnded||res.message)report(res);ui.hud();moveTimer=.15}
 window.addEventListener('keydown',event=>{
   const key=event.key.toLowerCase();
+  if(placement){
+    if(['escape','enter',' ',...Object.keys(directions)].includes(key))event.preventDefault();
+    if(key==='escape')cancelPlacement();else if(key==='enter'&&!event.repeat)handleAction('placeConfirm','','');
+    else if(directions[key]){const [dx,dy]={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[directions[key]];placement.x=Math.max(1,Math.min(30,placement.x+dx));placement.y=Math.max(1,Math.min(18,placement.y+dy));previewPlacement();}
+    return;
+  }
   if(key===' '||key==='e')recast.input(key,true);
+  if(key===' ')work.input('key',true);
   if(key==='escape'){
-    event.preventDefault();keys.clear();
+    event.preventDefault();work.cancel();keys.clear();
     if(fishing){handleAction('cancelFishing','','');return}
     if(ui.panel)ui.close();else if(!transitionTime)ui.open('settings');return;
   }
@@ -151,28 +208,39 @@ window.addEventListener('keydown',event=>{
   if(fishing){if(key===' '&&!event.repeat){heldFish=true;reel(fishing)}return}
   if(event.repeat)return;
   if(directions[key]){keys.add(key);move(directions[key]);return}
-  const tool=TOOLS.find(t=>t.key===key);if(tool){state.selectedTool=tool.id;ui.hud();save();return}
+  const tool=TOOLS.find(t=>t.key===key);if(tool){work.cancel();state.selectedTool=tool.id;ui.hud();save();return}
   if(key==='e'){interact();return}
   if(key===' '){const target=targetTile(state);useAt(target.x,target.y);return}
-  const panels:Record<string,string>={b:'bag',m:'map',c:'catalog',j:'journal'};if(panels[key]){ui.open(panels[key]);keys.clear()}
+  const panels:Record<string,string>={b:'bag',m:'map',c:'catalog',j:'journal'};if(panels[key]){work.cancel();ui.open(panels[key]);keys.clear()}
 });
-window.addEventListener('keyup',event=>{const key=event.key.toLowerCase();keys.delete(key);recast.input(key,false);if(key===' ')heldFish=false});
-window.addEventListener('blur',()=>{focused=false;keys.clear();heldFish=false;recast.releaseAll();save();lastTime=performance.now();accumulator=0});
+window.addEventListener('keyup',event=>{const key=event.key.toLowerCase();keys.delete(key);recast.input(key,false);if(key===' '){heldFish=false;work.input('key',false)}});
+window.addEventListener('blur',()=>{focused=false;keys.clear();heldFish=false;recast.releaseAll();work.releaseAll();save();lastTime=performance.now();accumulator=0});
 window.addEventListener('focus',()=>{focused=true;lastTime=performance.now();accumulator=0});
-document.addEventListener('visibilitychange',()=>{keys.clear();heldFish=false;recast.releaseAll();save();lastTime=performance.now();accumulator=0});
+document.addEventListener('visibilitychange',()=>{keys.clear();heldFish=false;recast.releaseAll();work.releaseAll();save();lastTime=performance.now();accumulator=0});
 window.addEventListener('pagehide',save);
 document.addEventListener('pointerdown',event=>{if(event.button===0)recast.input('pointer',true);if(fishing&&event.button===0&&(event.target as Element).closest('#fishingPanel,#game')){heldFish=true;reel(fishing)}});
-window.addEventListener('pointerup',()=>{heldFish=false;recast.input('pointer',false)});
+window.addEventListener('pointerup',()=>{heldFish=false;recast.input('pointer',false);work.input('pointer',false)});
+window.addEventListener('pointercancel',()=>{work.releaseAll();work.cancel();heldFish=false;recast.releaseAll()});
+let suppressWorkClick=false;
+canvas.addEventListener('pointerdown',event=>{
+  suppressWorkClick=false;if(event.button!==0||ui.panel||transitionTime||fishing||placement)return;
+  const rect=canvas.getBoundingClientRect(),x=Math.floor((event.clientX-rect.left)/rect.width*32),y=Math.floor((event.clientY-rect.top)/rect.height*20);
+  if(state.selectedTool!=='rod'&&workTarget(state,x,y)){suppressWorkClick=true;work.input('pointer',true);beginWork(x,y);canvas.focus({preventScroll:true});}
+});
 canvas.addEventListener('click',event=>{
+  if(suppressWorkClick){suppressWorkClick=false;return;}
   if(fishing)return;
   const rect=canvas.getBoundingClientRect(),x=Math.floor((event.clientX-rect.left)/rect.width*32),y=Math.floor((event.clientY-rect.top)/rect.height*20);
+  if(placement){placement.x=x;placement.y=y;previewPlacement();return;}
   useAt(x,y);canvas.focus({preventScroll:true});
 });
 function simulate(dt:number){
   recast.tick(dt);
   if(transitionTime>0){transitionTime=Math.max(0,transitionTime-dt);if(!sleepPending)$('transition').dataset.phase=transitionTime<.7?'dawn':'night';if(!transitionTime){if(sleepPending){sleepPending=false;report(dayEnd(state));}else $('transition').hidden=true;}return}
-  if(ui.panel)return;
+  if(ui.panel||placement)return;
   const timeResult=advanceTime(state,dt);if(timeResult){report(timeResult);if(timeResult.dayEnded)return}
+  const impact=work.tick(state,dt);
+  if(impact){if(impact.result.ok){renderer.workImpact(impact);tone(impact.target.tool==='axe'?'wood':'stone');}report({...impact.result,effect:undefined},impact.target.x,impact.target.y);}
   if(fishing){
     const previousStage=fishing.stage;
     tickFishing(fishing,dt,heldFish);
@@ -189,7 +257,8 @@ function frame(now:number){
   music.update(state,!paused);
   if(!paused){accumulator+=dt;while(accumulator>=1/60){simulate(1/60);accumulator-=1/60}saveElapsed+=dt;if(saveElapsed>=15)save()}
   else accumulator=0;
-  renderer.draw(state,paused?0:dt,fishing);
+  renderer.draw(state,paused?0:dt,fishing,undefined,work.session);
+  if(placement)drawPlacement(canvas.getContext('2d')!,placement);
   ui.fishing(fishing);ui.hud();requestAnimationFrame(frame);
 }
 ui.hud(true);ui.showToast(loaded.message);

@@ -1,3 +1,4 @@
+import { grassAt,REPAIRS } from './fieldwork';
 import { CROPS,FISH,FORAGE,HAIRS,HATS,ITEMS,OUTFITS,OUTFIT_COLORS,RECIPES,SEASON_NAMES,SKINS,TOOLS,UPGRADE_COSTS,WEATHER_NAMES } from './content';
 import { clockText,seasonDay,seasonOf,shopOpen,targetTile,yearOf } from './engine';
 import { quantity } from './inventory';
@@ -10,6 +11,10 @@ import { FISHING_DIFFICULTIES } from './fishing';
 import { hudIcon } from './hud-icons';
 import { resourceAt,treeStage,objectKey } from './world';
 import { fishingPanelPosition,hudOnLeft } from './overlays';
+import { nearbyInteraction } from './interactions';
+import { lifePanel,lifeJournal,facilitiesPanel } from './life-ui';
+import { PEOPLE } from './life-content';
+import type { VillagerId } from './types';
 
 export const layout=`
 <div class="app-frame">
@@ -45,7 +50,7 @@ export const layout=`
 
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-const itemIcon=(id:string)=>iconSVG(ITEMS[id]?.kind??'crop',ITEMS[id]?.color);
+const itemIcon=(id:string)=>iconSVG(['shell','quartz'].includes(id)?id:ITEMS[id]?.kind??'crop',ITEMS[id]?.color);
 const button=(text:string,action:string,id='',value='',disabled=false)=>`<button class="action-button" data-action="${action}" data-id="${id}" data-value="${value}" ${disabled?'disabled':''}>${text}</button>`;
 export class UI {
   panel:string|null=null;
@@ -56,6 +61,8 @@ export class UI {
     // Keep notifications outside the canvas stacking context and its clipping area.
     document.querySelector('#app')!.append($('toast'));
     const mapFrame=document.querySelector('.canvas-wrap')!;
+    document.querySelector('.masthead nav')!.insertAdjacentHTML('afterbegin','<button data-action="open" data-id="facilities">布置</button>');
+    mapFrame.insertAdjacentHTML('beforeend','<section id="placementPanel" class="placement-panel" hidden aria-label="农场布置"><b id="placementTitle"></b><p id="placementHint" role="status" aria-live="polite"></p><small>方向键或点击选格 · Enter 确认 · Esc 取消 · 时间已暂停</small><div class="button-row"><button class="action-button" data-action="placeConfirm">确认摆放</button><button class="action-button" data-action="placeCancel">取消</button></div></section>');
     mapFrame.append(document.querySelector('.almanac-dock')!,document.querySelector('.toolbar-row')!);
     document.querySelector('.toolbar-row')!.insertAdjacentHTML('beforeend',`<button class="bag-toggle" data-action="open" data-id="bag" aria-label="打开背包" aria-controls="modal" aria-expanded="false">${iconSVG('bag')}<span>背包 <kbd>B</kbd></span><small id="bagCapacity">2 / 24</small></button>`);
     new ResizeObserver(()=>this.hud(true)).observe(mapFrame);
@@ -104,11 +111,12 @@ export class UI {
     $('selectedSeedName').textContent=ITEMS[`seed_${s.selectedSeed}`].name;$('selectedSeedIcon').innerHTML=itemIcon(`seed_${s.selectedSeed}`);$('seedCount').textContent=String(quantity(s.inventory,`seed_${s.selectedSeed}`));
     $('bagCapacity').textContent=`${s.inventory.slots.length} / ${s.inventory.capacity}`;
     document.querySelector('.bag-toggle')!.classList.toggle('bag-full',s.inventory.slots.length>=s.inventory.capacity);
-    const near=nearby(s);const prompt=$('worldPrompt');prompt.classList.toggle('visible',!!near);prompt.setAttribute('aria-hidden',String(!near));if(near)prompt.innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
+    const near=nearbyInteraction(s);const prompt=$('worldPrompt');prompt.classList.toggle('visible',!!near);prompt.setAttribute('aria-hidden',String(!near));if(near)prompt.innerHTML=`<kbd>E</kbd> ${esc(near.label)}`;
     const target=targetTile(s);
     const resource=resourceAt(s,target.x,target.y);
     if(!near&&resource){prompt.classList.add('visible');prompt.setAttribute('aria-hidden','false');prompt.innerHTML=resource.kind==='tree'?'<kbd>6</kbd> 斧头 · <kbd>空格</kbd> 砍树，获得木材':'<kbd>7</kbd> 石镐 · <kbd>空格</kbd> 挖石，获得石料';}
     if(!near&&resource?.kind==='tree'&&treeStage(s,p.scene,resource)!=='mature')prompt.textContent=`${treeStage(s,p.scene,resource)==='sapling'?'树苗':'小树'} · 还需 ${6-s.ecology.trees[objectKey(p.scene,resource)]} 天长成大树`;
+    if(!near&&grassAt(s,target.x,target.y)){prompt.classList.add('visible');prompt.setAttribute('aria-hidden','false');prompt.innerHTML='<kbd>1</kbd> 锄头 · <kbd>空格</kbd> 清理草丛';}
     if(!near&&p.scene==='farm'&&isUnlockedPlot(s,target.x,target.y)&&s.weeds.includes(plotIndex(target.x,target.y))){prompt.classList.add('visible');prompt.setAttribute('aria-hidden','false');prompt.innerHTML='<kbd>1</kbd> 锄头 · <kbd>空格</kbd> 除草，再松土播种';}
   }
   renderPanel(){
@@ -124,10 +132,11 @@ export class UI {
     if(panel==='kitchen')html+=`<div class="card-grid recipes">${RECIPES.map(r=>`<article class="content-card"><div class="card-icon">${itemIcon(r.id)}</div><h3>${r.name}</h3><p>${r.ingredients.map(i=>`${ITEMS[i.id].name} ${quantity(s.inventory,i.id)}/${i.count}`).join(' · ')}</p><small>生命 +${r.food.health}　体力 +${r.food.stamina}　饱食 +${r.food.hunger}</small>${button('做一份','cook',r.id,'',!r.ingredients.every(i=>quantity(s.inventory,i.id)>=i.count))}</article>`).join('')}</div>`;
     if(panel==='wardrobe')html+=this.wardrobe(s);
     if(panel==='map')html+=`<div class="map-diagram"><div class="map-place ${s.player.scene==='home'?'current':''}">⌂ 橡果小屋</div><span class="map-line">│</span><div class="map-route">${['forest','farm','town','lake'].map((id,i)=>`${i?'<span>↔</span>':''}<div class="map-place ${s.player.scene===id?'current':''}">${SCENES[id as keyof typeof SCENES].name}</div>`).join('')}</div><p>森林 ↔ 萤火秘林 · 森林 ↔ 回声石谷 ↔ 云杉山脊</p><p>湖畔 ↔ 潮声海湾</p></div><div class="card-grid">${Object.values(SCENES).map(scene=>`<article class="content-card"><h3>${scene.name}${s.player.scene===scene.id?' · 你在这里':''}</h3><p>${scene.subtitle}</p><small>${scene.exits.map(e=>e.label).join('　')}</small></article>`).join('')}</div>`;
+    if(panel.startsWith('repair:')){const id=panel.slice(7),def=REPAIRS[id as keyof typeof REPAIRS];if(def){const repaired=s.fieldwork.repairs.includes(id);html='<div class="modal-eyebrow">VALLEY RESTORATION</div><h2 id="modalTitle">'+def.name+'</h2><p class="modal-subtitle">'+def.description+'</p><div class="repair-illustration" aria-hidden="true">'+(id==='pier'?'≋ ━╋━ ≋':'♧ ⌂ ♧')+'</div><p class="info-note">'+(repaired?'✓ 已永久修复':def.ingredients.map(i=>ITEMS[i.id].name+' '+quantity(s.inventory,i.id)+' / '+i.count).join(' · ')+' · '+def.gold+' G（余额 '+s.gold+' G）')+'</p><div class="button-row">'+(!repaired?button('确认修复','repair',id,'',s.gold<def.gold||!def.ingredients.every(i=>quantity(s.inventory,i.id)>=i.count)):id==='shelter'?button(s.fieldwork.restDay===s.calendar.day?'今日已休憩':'休憩 · 体力 +15','rest','','',s.fieldwork.restDay===s.calendar.day):'<span class="completed">沿海岸走到南端，即可使用新钓点。</span>')+button('关闭','close')+'</div>';}}
     if(panel==='journal')html+=`<div class="stats-grid">${[['收获',s.stats.harvested],['垂钓',s.stats.caught],['烹饪',s.stats.cooked],['订单',s.stats.orders],['声望',s.stats.reputation],['累计收入',`${s.stats.revenue} G`]].map(([k,v])=>`<div><strong>${v}</strong><small>${k}</small></div>`).join('')}</div><div class="section-title">值得期待的小目标</div><div class="milestones">${[['收获 20 份作物','枫叶斗篷',s.stats.harvested>=20],['钓到 10 条鱼','湖蓝钓装',s.stats.caught>=10],['制作 8 份料理','花环',s.stats.cooked>=8],['完成 10 份订单','星夜长衫',s.stats.orders>=10],['收集 12 种鱼','星星帽',FISH.filter(f=>s.discoveries[f.id]).length>=12]].map(([a,b,done])=>`<p class="${done?'completed':''}">${done?'✓':'○'} ${a}<span>${b}</span></p>`).join('')}</div><p class="info-note">完成目标后仍可继续游玩。每日订单在小镇公告板提交，换季会带来新的作物与鱼群。</p>`;
     if(panel==='orders')html=`<div class="modal-eyebrow">NEIGHBOURHOOD REQUESTS</div><h2 id="modalTitle">邻里的小委托</h2><p class="modal-subtitle">今天的三张便笺。每天清晨更新，交付获得金币与声望。</p><div class="card-grid">${s.orders.map(o=>`<article class="content-card"><div class="card-icon">${itemIcon(o.item)}</div><h3>${ITEMS[o.item].name} × ${o.count}</h3><p>背包中 ${quantity(s.inventory,o.item)} 份</p><p>报酬 ${o.reward} G · 声望 +10</p>${button(o.done?'已完成':'交付物品','order',o.id,'',o.done||quantity(s.inventory,o.item)<o.count)}</article>`).join('')}</div>`;
     if(panel==='catalog'){
-      const ids=[...CROPS.map(c=>c.id),...FISH.map(f=>f.id),...FORAGE.map(f=>f.id),...RECIPES.map(r=>r.id)];
+      const ids=[...CROPS.map(c=>c.id),...FISH.map(f=>f.id),...FORAGE.map(f=>f.id),...RECIPES.map(r=>r.id),'shell','quartz','stardust',...Object.keys(ITEMS).filter(id=>ITEMS[id].kind==='processed')];
       html+=`<p class="collection-count">已发现 ${ids.filter(id=>s.discoveries[id]).length} / ${ids.length}</p><div class="card-grid collection">${ids.map(id=>{const found=s.discoveries[id];return `<article class="content-card ${found?'found':'undiscovered'}"><div class="card-icon">${itemIcon(id)}</div><h3>${ITEMS[id].name}</h3><p>${ITEMS[id].description}</p><small>${found?`首次：第 ${found.firstDay} 天 · 累计 ${found.count}`:'尚未发现 · 期待相遇'}</small></article>`}).join('')}</div>`;
     }
     if(panel==='settings')html+=`<div class="settings-row"><div><h3>钓鱼辅助</h3><small>扩大浮标范围、放慢鱼的移动；奖励不变。</small></div>${button(s.settings.fishingAssist?'已开启':'已关闭','assist')}</div><div class="settings-row"><div><h3>自然音效</h3><small>水滴、收获与轻柔提示音。</small></div>${button(s.settings.sound?'已开启':'已关闭','sound')}</div><div class="key-list"><p><kbd>WASD / 方向键</kbd> 连续移动</p><p><kbd>1 — 7</kbd> 选择工具</p><p><kbd>空格 / 点击</kbd> 操作高亮或相邻格</p><p><kbd>E</kbd> 进入建筑／交谈／采集</p><p><kbd>B / M / C / J</kbd> 背包／地图／图鉴／手记</p><p><kbd>Esc</kbd> 关闭／暂停</p></div><p class="info-note">站在农田中时优先操作脚下。低饱食度会增加体力消耗；农场小屋前每天有免费莓果。跨季作物休眠、不枯死。商店营业时间为 08:00–20:00。</p><div class="section-title">保存你的农场</div><p class="info-note">每 15 秒及重要操作后自动保存。不同浏览器或端口不共享存档，可用导出／导入搬移。</p><div class="button-row">${button('导出存档','export')}${button('导入存档','importFile')}${button('重新开始','open','reset')}</div><a class="attribution" href="https://deerflow.tech" target="_blank" rel="noreferrer">Created By Deerflow</a>`;
@@ -140,10 +149,15 @@ export class UI {
     if(panel==='settings')html+=`<div class="section-title">音乐与界面</div><div class="settings-row"><div><h3>溪谷背景音乐</h3><small>原创轻柔旋律；首次点击后播放，离开窗口自动暂停。</small></div>${button(s.settings.music?'已开启':'已关闭','music')}</div><label class="settings-row">音乐音量 <input aria-label="音乐音量" type="range" min="0" max="100" value="${s.settings.volume}" data-setting="volume" /></label><div class="settings-row"><div><h3>状态框详情</h3><small>展开显示待结算收入和手记入口。</small></div>${button(s.settings.hud?'收起':'展开','toggleHud')}</div><label class="settings-row">状态框大小 <input aria-label="状态框大小" type="range" min="220" max="360" step="10" value="${s.settings.hudWidth}" data-setting="hudWidth" /></label>`;
     const focusedAction=(document.activeElement as HTMLElement)?.dataset.action,focusedId=(document.activeElement as HTMLElement)?.dataset.id,focusedValue=(document.activeElement as HTMLElement)?.dataset.value,focusedSetting=(document.activeElement as HTMLElement)?.dataset.setting;
     if(panel==='journal')html+=`<div class="section-title">新手旅程</div><div class="milestones">${[['播种第一片希望',s.stats.planted,5],['收获第一篮蔬菜',s.stats.harvested,5],['钓起第一条鱼',s.stats.caught,1],['为自己做一顿饭',s.stats.cooked,1],['完成邻里的订单',s.stats.orders,1]].map(([name,n,total])=>`<p>${Number(n)>=Number(total)?'✓':'○'} ${name}<span>${Math.min(Number(n),Number(total))}/${total}</span></p>`).join('')}</div>`;
+    if(panel==='smith')html+=facilitiesPanel(s,true);
+    if(panel==='journal'||panel==='map')html=html.replace('</p>','</p>'+lifeJournal(s));
+    if(panel==='orders')html=html.replace('<div class="card-grid">','<p class="info-note">'+s.orders.map(o=>o.villager?PEOPLE[o.villager].name+'委托：'+ITEMS[o.item].name+'（完成额外好感 +3）':'既有委托：'+ITEMS[o.item].name).join(' · ')+'</p><div class="card-grid">');
+    html=lifePanel(s,panel)??html;
     content.innerHTML=html;content.scrollTop=scroll;
+    content.querySelectorAll<HTMLCanvasElement>('canvas[data-person]').forEach(canvas=>{const c=canvas.getContext('2d')!;c.imageSmoothingEnabled=false;c.fillStyle='#d8c99e';c.fillRect(0,0,96,96);drawPerson(c,48,82,PEOPLE[canvas.dataset.person as VillagerId].appearance,'down',0,2);});
     if(focusedAction)Array.from(content.querySelectorAll<HTMLElement>('[data-action]')).find(el=>el.dataset.action===focusedAction&&el.dataset.id===focusedId&&el.dataset.value===focusedValue)?.focus({preventScroll:true});
     if(focusedSetting)Array.from(content.querySelectorAll<HTMLElement>('[data-setting]')).find(el=>el.dataset.setting===focusedSetting)?.focus({preventScroll:true});
-    $('modal').classList.toggle('wide',['bag','chest','catalog','kitchen','wardrobe','map','grocer','fisher'].includes(panel));
+    $('modal').classList.toggle('wide',['bag','chest','catalog','kitchen','wardrobe','map','grocer','fisher','smith','facilities','journal'].includes(panel)||panel.startsWith('machine:'));
     $('modal').dataset.panel=panel;
     this.updateTradeQuote();
     $('modal').querySelector<HTMLButtonElement>('.close-button')!.disabled=panel==='catch';
@@ -159,7 +173,7 @@ export class UI {
     let ids=stock?[...CROPS.filter(c=>c.seasons.includes(seasonOf(s.calendar.day))).map(c=>`seed_${c.id}`),'ration']:[...new Set(bag.slots.map(i=>i.id))];
     if(!['all','buy','chest'].includes(this.category))ids=ids.filter(id=>ITEMS[id].kind===this.category);
     if(!ids.includes(this.selectedItem))this.selectedItem=ids[0]??'';
-    let tabs=panel==='chest'?[['all','随身背包'],['chest','储物箱']]:panel==='grocer'?[['buy','↓ 购买商品'],['all','↑ 出售物品']]:[['all','全部'],['seed','种子'],['crop','作物'],['forage','采集'],['fish','鱼类'],['meal','食物'],['material','材料']];
+    let tabs=panel==='chest'?[['all','随身背包'],['chest','储物箱']]:panel==='grocer'?[['buy','↓ 购买商品'],['all','↑ 出售物品']]:[['all','全部'],['seed','种子'],['crop','作物'],['forage','采集'],['fish','鱼类'],['meal','食物'],['processed','加工品'],['material','材料']];
     const trading=['grocer','fisher'].includes(panel);
     let html=trading?`<div class="shop-wallet">${hudIcon('coin')}<span>可用余额<strong>${s.gold.toLocaleString()} <small>G</small></strong></span><p>${stock?'从货架买入 · 支出金币':'卖出背包物品 · 即时入账'}<small>${stock?'选择下方商品查看总价':'请留一些食材给自己'}</small></p></div>`:'';
     html+=`<div class="panel-tabs ${trading?'trade-tabs':''}" data-mode="${stock?'buy':'sell'}">${tabs.map(([id,name])=>`<button aria-pressed="${this.category===id}" class="${this.category===id?'active':''}" data-action="category" data-id="${id}">${name}</button>`).join('')}<small>${s.inventory.slots.length}/${s.inventory.capacity} 格</small></div>`;

@@ -35,7 +35,7 @@ describe('water anchors and recast input',()=>{
 });
 describe('slower living world',()=>{
   it('regrows cut trees through two visible stages before restoring collision',()=>{
-    const s=initialState(1);Object.assign(s.player,{x:10,y:4});s.selectedTool='axe';harvestResource(s,10,3);
+    const s=initialState(1);Object.assign(s.player,{x:10,y:4});s.selectedTool='axe';for(let i=0;i<6;i++)harvestResource(s,10,3);
     const o=SCENES.farm.objects.find(o=>o.id==='f2')!;
     expect(treeStage(s,'farm',o)).toBe('sapling');
     for(let d=1;d<=6;d++){dayEnd(s,false,()=>.9);expect(validSave(s)).toBe(true);expect(treeStage(s,'farm',o)).toBe(d<3?'sapling':d<6?'young':'mature');}
@@ -46,7 +46,7 @@ describe('slower living world',()=>{
     s.ecology.trees['farm:f3']=5;s.player.y=3;growWorld(s);expect(s.ecology.trees['farm:f3']).toBe(5);expect(validSave(s)).toBe(true);
   });
   it('restores wild forage after three days, materials after five, and farm food daily',()=>{
-    const s=initialState(1);Object.assign(s.player,{scene:'forest',x:5,y:6});gather(s,5,6);Object.assign(s.player,{x:11,y:10});s.selectedTool='axe';gather(s,11,10);
+    const s=initialState(1);Object.assign(s.player,{scene:'forest',x:5,y:6});gather(s,5,6);Object.assign(s.player,{x:11,y:10});s.selectedTool='axe';gather(s,11,10);gather(s,11,10);
     Object.assign(s.player,{scene:'farm',x:2,y:9});gather(s,2,9);
     for(let d=1;d<=5;d++){dayEnd(s,false,()=>.9);expect(availableForage(s,'farm').some(n=>n.id==='food0')).toBe(true);expect(availableForage(s,'forest').some(n=>n.id==='forage0')).toBe(d>=3);expect(availableForage(s,'forest').some(n=>n.id==='wood0')).toBe(d>=5);}
   });

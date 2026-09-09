@@ -13,11 +13,12 @@ function plotState(id='radish'){const s=fresh();locate(s,'farm',12,8);s.selected
 class MemoryStorage{data=new Map<string,string>();getItem(k:string){return this.data.get(k)??null}setItem(k:string,v:string){this.data.set(k,v)}}
 
 describe('content and unified map',()=>{
-  it('ships the complete content catalog',()=>{expect(CROPS).toHaveLength(8);expect(FISH).toHaveLength(14);expect(FORAGE).toHaveLength(6);expect(RECIPES).toHaveLength(8);expect(Object.keys(SCENES)).toHaveLength(9)});
+  it('ships the complete content catalog',()=>{expect(CROPS).toHaveLength(10);expect(FISH).toHaveLength(14);expect(FORAGE).toHaveLength(6);expect(RECIPES).toHaveLength(8);expect(Object.keys(SCENES)).toHaveLength(10)});
   it('all purchasable products cost more than their resale value',()=>{for(const i of Object.values(ITEMS))if(i.buy)expect(i.sell).toBeLessThan(i.buy)});
   it('all exits, services, fish spots and daily recovery food are reachable',()=>{
     for(const scene of Object.values(SCENES)){
-      const start=Object.values(SCENES).flatMap(s=>s.exits).find(e=>e.to===scene.id)!.spawn;
+      // The tidal cave is entered through a scheduled dynamic interaction.
+      const start:[number,number]=scene.id==='cave'?[6,15]:Object.values(SCENES).flatMap(s=>s.exits).find(e=>e.to===scene.id)!.spawn;
       const seen=new Set<string>(),queue:[number,number][]=[start];
       while(queue.length){const [x,y]=queue.shift()!,key=`${x},${y}`;if(seen.has(key)||!passable(scene.id,x,y))continue;seen.add(key);queue.push([x+1,y],[x-1,y],[x,y+1],[x,y-1])}
       for(const exit of scene.exits){expect(seen.has(`${exit.x},${exit.y}`),`${scene.id} exit ${exit.id}`).toBe(true);expect(passable(exit.to,...exit.spawn)).toBe(true)}

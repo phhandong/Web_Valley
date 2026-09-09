@@ -1,3 +1,7 @@
+import { GRASS,grassAt,fishingSpots,workTarget } from './fieldwork';
+import { regionalArt } from './regional-art';
+import { drawTool } from './tool-art';
+import type { WorkSession,WorkImpact } from './work-session';
 import { CROPS,FORAGE,ITEMS } from './content';
 import { availableForage,seasonOf,targetTile } from './engine';
 import { drawPerson } from './art';
@@ -6,6 +10,7 @@ import type { Appearance,GameStateV2,SceneId } from './types';
 import type { FishingSession } from './fishing';
 import { areaOpen } from './progression';
 import { objectKey,treeStage } from './world';
+import { lifeDrawables } from './life-art';
 
 type Particle={x:number;y:number;vx:number;vy:number;life:number;color:string};
 export class SceneRenderer {
@@ -16,6 +21,8 @@ export class SceneRenderer {
   private labels=document.createElement('canvas');
   private labelContext:CanvasRenderingContext2D;
   actionAge=0;
+  private impact: {data:WorkImpact;age:number}|null=null;
+  workImpact(data:WorkImpact){this.impact={data,age:0};const t=data.target;for(let i=0;i<(this.reduced?3:10);i++)this.particles.push({x:(t.x+.5)*TILE,y:(t.y+.6)*TILE,vx:(i%2?1:-1)*(12+i*4),vy:-30-i*3,life:.4+i*.04,color:t.tool==='axe'?'#caa36c':'#c5d8d1'});}
   constructor(public canvas:HTMLCanvasElement){canvas.width=COLS*TILE;canvas.height=ROWS*TILE;this.c=canvas.getContext('2d')!;this.terrain.width=canvas.width;this.terrain.height=canvas.height;this.c.imageSmoothingEnabled=false;this.labels.className='map-labels';this.labels.setAttribute('aria-hidden','true');canvas.after(this.labels);this.labelContext=this.labels.getContext('2d')!;const mq=matchMedia('(prefers-reduced-motion: reduce)');this.reduced=mq.matches;mq.addEventListener('change',e=>this.reduced=e.matches);}
   burst(x:number,y:number,effect:string){this.actionAge=.35;const count=this.reduced?3:12;for(let i=0;i<count;i++)this.particles.push({x:(x+.5)*TILE,y:(y+.6)*TILE,vx:Math.cos(i*2.4)*25,vy:-25-i*2,life:.5+i*.018,color:effect==='water'?'#b6e4e2':effect==='soil'?'#c89a69':effect==='food'?'#a4d5a3':'#f4d38b'});}
   private rect(x:number,y:number,w:number,h:number,color:string){this.c.fillStyle=color;this.c.fillRect(Math.round(x),Math.round(y),Math.ceil(w),Math.ceil(h))}
@@ -47,9 +54,11 @@ export class SceneRenderer {
       for(let i=0;i<55;i++){const x=(i*173+31)%758,y=(i*97+11)%472;if(i%3){r(x,y,2,5,'#5c7751');r(x-1,y-2,4,3,season==='winter'?'#f0f1e8':i%2?'#ddc280':'#d8d5b2')}}
       for(let x=0;x<32;x++){r(x*TILE,0,24,4,'#668064');r(x*TILE,476,24,4,'#667a59')}
     }
+    if(scene==='cave'){r(0,0,768,480,'#424e51');r(24,24,720,432,'#7d8781');for(let i=0;i<210;i++)r(28+i*137%708,28+i*71%420,6,2,i%2?'#a5aca0':'#65726e');}
     this.c=original;
   }
-  draw(state:GameStateV2,dt:number,fishing:FishingSession|null,preview?:Appearance){
+  draw(state:GameStateV2,dt:number,fishing:FishingSession|null,preview?:Appearance,work:WorkSession|null=null){
+    if(this.impact){this.impact.age+=dt;if(this.impact.age>.65)this.impact=null;}
     this.time+=dt;this.actionAge=Math.max(0,this.actionAge-dt);this.background(state);const c=this.c;
     const bounds=this.canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,lw=Math.round(bounds.width*dpr),lh=Math.round(bounds.height*dpr);
     if(this.labels.width!==lw||this.labels.height!==lh){this.labels.width=lw;this.labels.height=lh}
@@ -57,6 +66,8 @@ export class SceneRenderer {
     c.clearRect(0,0,768,480);c.drawImage(this.terrain,0,0);
     const scene=SCENES[state.player.scene];
     for(const object of scene.objects)if(object.kind==='water')this.water(object);
+    regionalArt(c,state,this.time,this.reduced);
+    for(const g of GRASS[scene.id])if(grassAt(state,g.x,g.y)){const x=g.x*TILE,y=g.y*TILE,sway=this.reduced?0:Math.round(Math.sin(this.time*2+g.x));this.rect(x+4,y+18,17,4,'#39563055');for(let i=0;i<4;i++){const h=7+(i*3+g.x)%8;this.rect(x+5+i*4,y+20-h,2,h,'#517340');this.rect(x+3+i*4+sway,y+18-h,4,3,'#91ac59');}}
     if(scene.id==='farm')this.plots(state);
     if(scene.id==='farm')for(const index of state.weeds){
       const x=(FARM.x+index%12)*TILE,y=(FARM.y+Math.floor(index/12))*TILE;
@@ -75,18 +86,23 @@ export class SceneRenderer {
       const x=node.x*TILE,y=node.y*TILE;
       if(node.kind==='wood'){this.rect(x+3,y+12,18,8,'#805d3f');this.rect(x+3,y+12,5,8,'#b39361');this.rect(x+10,y+13,10,2,'#a07c4d')}
       else if(node.kind==='stone'){this.rect(x+5,y+8,15,12,'#7d8c86');this.rect(x+8,y+5,10,7,'#a7b3a3');this.rect(x+6,y+10,4,6,'#c2caba')}
+      else if(node.kind==='shell'){this.rect(x+5,y+10,15,9,'#e2b9a6');this.rect(x+8,y+7,9,4,'#f3d5b9');for(let i=0;i<3;i++)this.rect(x+8+i*4,y+11,1,7,'#b48778');}
+      else if(node.kind==='ore'){this.rect(x+3,y+15,18,7,'#677e83');this.rect(x+8,y+4,6,17,'#b7d9db');this.rect(x+10,y+2,2,17,'#ecf2df');this.rect(x+15,y+9,5,10,'#9bbacb');}
       else {const color=FORAGE[node.index].color;this.rect(x+6,y+12,13,8,'#557954');this.rect(x+3,y+9,7,8,'#769456');this.rect(x+8,y+8,5,5,color);this.rect(x+14,y+12,5,5,color);this.rect(x+10,y+5,2,3,'#dfd39a');}
     }
     for(const exit of scene.exits){const x=exit.x*TILE,y=exit.y*TILE;this.rect(x+2,y+5,20,14,'#5a6650');this.rect(x+4,y+6,16,10,'#d4c18d');this.label((areaOpen(state,exit.to)?'':'◇ ')+exit.label,x+12,y-4,'#fff0c6');}
-    for(const [x,y] of scene.fishing){c.strokeStyle='#ddce9855';c.strokeRect(x*TILE+4,y*TILE+5,16,14);this.rect(x*TILE+10,y*TILE+9,3,5,'#f0dfaf')}
+    for(const [x,y] of fishingSpots(state)){c.strokeStyle='#ddce9855';c.strokeRect(x*TILE+4,y*TILE+5,16,14);this.rect(x*TILE+10,y*TILE+9,3,5,'#f0dfaf')}
     if(this.lastScene!==scene.id){this.lastScene=scene.id;this.px=state.player.x;this.py=state.player.y;this.particles=[]}
     const moving=Math.abs(this.px-state.player.x)+Math.abs(this.py-state.player.y)>.015;
     const factor=dt>0?Math.min(1,dt*20):0;this.px+=(state.player.x-this.px)*factor;this.py+=(state.player.y-this.py)*factor;
     if(moving)this.walk+=dt*22;else this.walk=0;
-    const objects=scene.objects.filter(o=>o.kind!=='water'&&(!state.clearedObjects.includes(objectKey(scene.id,o))||(o.kind==='tree'&&state.ecology.trees[objectKey(scene.id,o)]!==undefined))).map(o=>({y:o.y+o.h,draw:()=>this.object(o,state)}));
-    objects.push({y:this.py+1,draw:()=>drawPerson(c,this.px*TILE+12,this.py*TILE+21,preview??state.player.appearance,state.player.direction,this.walk,1,this.reduced?0:Math.sin(this.actionAge*35)*this.actionAge*8)});
+    const objects=scene.objects.filter(o=>o.kind!=='water'&&(!state.clearedObjects.includes(objectKey(scene.id,o))||(o.kind==='tree'&&state.ecology.trees[objectKey(scene.id,o)]!==undefined))).map(o=>({y:o.y+o.h,draw:()=>this.workObject(o,state)}));
+    objects.push({y:this.py+1,draw:()=>drawPerson(c,this.px*TILE+12,this.py*TILE+21,preview??state.player.appearance,state.player.direction,this.walk,1,this.reduced?0:work?Math.sin(work.elapsed/.5*Math.PI)*5:Math.sin(this.actionAge*35)*this.actionAge*8)});
+    objects.push(...lifeDrawables(c,state,(text,x,y)=>this.label(text,x,y)));
     objects.sort((a,b)=>a.y-b.y).forEach(o=>o.draw());
-    const target=targetTile(state);if(target.x>=0&&target.y>=0&&target.x<32&&target.y<20){c.strokeStyle=`rgba(247,229,173,${this.reduced?0.8:0.55+Math.sin(this.time*4)*0.3})`;c.lineWidth=1;const tx=target.x*TILE,ty=target.y*TILE;for(const [x,y,dx,dy] of [[tx+2,ty+7,0,-5],[tx+2,ty+2,5,0],[tx+22,ty+17,0,5],[tx+22,ty+22,-5,0]]){c.beginPath();c.moveTo(x,y);c.lineTo(x+dx,y+dy);c.stroke();}}
+    if(work){const p=state.player,angle={down:2.5,up:-.64,left:4.07,right:.93}[p.direction],phase=Math.min(1,work.elapsed/.5),swing=phase<.44?-(1-phase/.44):.25*Math.sin((phase-.44)/.56*Math.PI);c.save();c.translate(this.px*TILE+12,this.py*TILE+10);c.rotate(angle+(this.reduced?0:swing));c.scale(.85,.85);c.translate(-8,-27);drawTool(c,work.target.tool);c.restore();}
+    if(this.impact?.data.complete&&this.impact.data.target.objectId){const t=this.impact.data.target,o=scene.objects.find(o=>o.id===t.objectId);if(o&&t.scene===scene.id){const age=this.impact.age;c.save();c.globalAlpha=Math.max(0,1-age/.65);c.translate((o.x+.5)*TILE,(o.y+o.h)*TILE);if(!this.reduced)c.rotate((t.kind==='tree'?1.3:.25)*age/.65);c.translate(-(o.x+.5)*TILE,-(o.y+o.h)*TILE);this.object(o,{...state,ecology:{...state.ecology,trees:{...state.ecology.trees,[t.key]:6}}});c.restore();}}
+    const target=targetTile(state);const active=work?.target??workTarget(state,target.x,target.y);if(active&&active.scene===scene.id&&(state.fieldwork.damage[active.key]||work)){const x=(active.x+.5)*TILE,y=active.y*TILE-9;this.rect(x-19,y,38,5,'#273f33');this.rect(x-18,y+1,36*(state.fieldwork.damage[active.key]??(work?.complete?12:0))/12,3,'#e9cc81');this.label(active.tool==='axe'?'砍伐 · 可按住':'开采 · 可按住',x,y-5,'#f0dfac');}if(target.x>=0&&target.y>=0&&target.x<32&&target.y<20){c.strokeStyle=`rgba(247,229,173,${this.reduced?0.8:0.55+Math.sin(this.time*4)*0.3})`;c.lineWidth=1;const tx=target.x*TILE,ty=target.y*TILE;for(const [x,y,dx,dy] of [[tx+2,ty+7,0,-5],[tx+2,ty+2,5,0],[tx+22,ty+17,0,5],[tx+22,ty+22,-5,0]]){c.beginPath();c.moveTo(x,y);c.lineTo(x+dx,y+dy);c.stroke();}}
     if(fishing){
       const x=this.px*TILE+12,y=this.py*TILE+8,bx=fishing.anchor.x*TILE,by=fishing.anchor.y*TILE+(this.reduced?0:Math.sin(this.time*3)*1.5),bite=fishing.stage==='bite';
       const direction=bx>x?1:-1;c.strokeStyle='#ecd5a2';c.lineWidth=2;c.beginPath();c.moveTo(x,y);c.lineTo(x+direction*12,y-24);c.stroke();c.lineWidth=1;c.strokeStyle='#fff1c5b0';c.beginPath();c.moveTo(x+direction*12,y-24);c.quadraticCurveTo((x+bx)/2,by-15,bx,by);c.stroke();
@@ -96,12 +112,13 @@ export class SceneRenderer {
     }
     for(const p of this.particles){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=110*dt;c.globalAlpha=Math.min(1,p.life*3);this.rect(p.x,p.y,2,3,p.color)}c.globalAlpha=1;this.particles=this.particles.filter(p=>p.life>0);
     this.light(state);
-    if(state.player.scene!=='home'&&state.calendar.weather!=='sun')this.weather(state.calendar.weather);
+    if(!['home','cave'].includes(state.player.scene)&&state.calendar.weather!=='sun')this.weather(state.calendar.weather);
     if(['forest','grove'].includes(scene.id)){
       for(let i=0;i<(scene.id==='grove'?32:10);i++){const x=(i*137+Math.sin(this.time*.7+i)*14+35)%740,y=(i*73+Math.cos(this.time*.4+i)*12+60)%455;this.rect(x,y,2,2,`rgba(255,237,143,${.35+Math.sin(this.time*2+i)*.25})`)}
       for(const o of scene.objects.filter(o=>o.action?.startsWith('event:')&&!state.progression.forestEvents.includes(o.action.slice(6))))this.rect((o.x+.5)*TILE,o.y*TILE-11,3,3,'#ffdf7f');
     }
   }
+  private workObject(o:WorldObject,state:GameStateV2){const c=this.c,key=objectKey(state.player.scene,o),impact=this.impact,shake=impact?.data.target.key===key&&!impact.data.complete&&!this.reduced?Math.sin(impact.age*65)*Math.max(0,1-impact.age*4)*3:0;c.save();c.translate(shake,0);this.object(o,state);const damage=state.fieldwork.damage[key]??0;if(damage&&o.kind==='rock'){const x=(o.x+.5)*TILE,y=(o.y+.35)*TILE;c.strokeStyle='#3d555c';c.lineWidth=2;c.beginPath();c.moveTo(x,y);c.lineTo(x+7,y+5);c.lineTo(x+3,y+10);if(damage>=6)c.lineTo(x+12,y+18);c.stroke();}c.restore();}
   private label(text:string,x:number,y:number,color='#fff3d7',background=true){const c=this.labelContext,scale=this.canvas.clientWidth/768,size=Math.max(11,13/scale);c.font=`600 ${size}px "Microsoft YaHei", sans-serif`;c.textAlign='center';const w=c.measureText(text).width;x=Math.max(w/2+6,Math.min(762-w/2,x));y=Math.max(size+4,y);if(background){c.fillStyle='#203e32ed';c.fillRect(x-w/2-5,y-size-2,w+10,size+7)}c.fillStyle=color;c.fillText(text,x,y);}
   private water(o:WorldObject){const x=o.x*TILE,y=o.y*TILE,w=o.w*TILE,h=o.h*TILE;this.rect(x-3,y-3,w+6,h+6,'#7c9272');this.rect(x,y,w,h,'#497f86');this.rect(x+3,y+3,w-6,h-6,'#619c9e');this.rect(x+8,y+8,w-16,h-16,'#73aeb0');const shimmer=this.reduced?0:Math.floor(this.time*4);for(let i=0;i<o.w*o.h/2;i++){const px=x+10+(i*57+shimmer)%(w-30),py=y+11+(i*43)%(h-20);this.rect(px,py,9+i%9,1,'#b6d1bd88')}
     for(let i=0;i<o.w;i+=2){this.rect(x+i*TILE,y-5,2,9,'#6a8457');this.rect(x+i*TILE+4,y-8,2,11,'#93a267');}
@@ -146,7 +163,7 @@ export class SceneRenderer {
       r(x+3,y+16,7,h-20,'#698d81');r(x+w-10,y+16,7,h-20,'#698d81');r(x+w/2,y+6,2,h-16,'#62887a');r(x+12,y+10,12,12,'#e4c895');r(x+w-25,y+12,12,10,'#c79078');r(x+7,y+h-6,4,6,'#705639');r(x+w-11,y+h-6,4,6,'#705639');
     }else if(o.kind==='bench'){r(x+2,y+3,w-4,Math.max(7,h-11),'#ad9468');r(x+4,y+h-8,4,8,'#796649');r(x+w-8,y+h-8,4,8,'#796649');}
     if(o.kind==='lamp'){r(x+11,y-12,3,36,'#606b56');r(x+6,y-16,13,12,'#c8b97d');r(x+8,y-13,9,7,'#f2df9a');r(x+5,y-18,15,3,'#63715b');}
-    if(o.label)this.label(o.label,x+w/2,y-4);
+    if(o.label)this.label(o.action?.startsWith('repair:')&&state.fieldwork.repairs.includes(o.action.slice(7))?o.label.replace(' · 修复',' · 已修复'):o.label,x+w/2,y-4);
   }
   private plots(state:GameStateV2){const [w,h]=farmDimensions(state.upgrades.farm);const r=(a:number,b:number,d:number,e:number,f:string)=>this.rect(a,b,d,e,f);
     r(FARM.x*TILE-4,FARM.y*TILE-4,w*TILE+8,h*TILE+8,'#a38e63');
@@ -157,7 +174,7 @@ export class SceneRenderer {
       for(let i=0;i<3;i++)r(px+3,py+5+i*6,17,1,plot.tilled?(plot.crop?.watered?'#9e8b60':'#b69768'):'#c0af7d');
       if(plot.crop){const def=CROPS.find(c=>c.id===plot.crop!.id)!,g=plot.crop.growth,ready=g>=def.days,dormant=!def.seasons.includes(seasonOf(state.calendar.day));
         r(px+10,py+11,3,8,dormant?'#958d67':'#557d49');r(px+5,py+9,7,4,dormant?'#ab9c72':'#7fa45c');r(px+13,py+6,7,5,dormant?'#ab9c72':'#81aa63');
-        if(g>0)r(px+7,py+14,10,5,ready?def.color:'#83a267');if(ready){r(px+8,py+16,9,5,def.color);const glow=this.reduced?0.33:0.33+Math.sin(this.time*3+(x+y)*0.7)*0.2;r(px+10,py+12,4,3,`rgba(255,255,255,${glow})`)}
+        if(g>0)r(px+7,py+14,10,5,ready?def.color:'#83a267');if(ready){r(px+8,py+16,9,5,def.color);const glow=this.reduced?0.33:0.33+Math.sin(this.time*3+(x+y)*0.7)*0.2;r(px+10,py+12,4,3,`rgba(255,255,255,${glow})`);if(['marigold','snowbell'].includes(def.id)){r(px+6,py+4,12,6,def.color);r(px+9,py+1,6,12,def.color);r(px+10,py+5,4,4,'#e7ca76');}}
         if(plot.crop.watered)r(px+3,py+18,3,2,'#8cbdba');if(dormant){r(px+17,py+2,3,3,'#d4d5c6')}
       }
     }

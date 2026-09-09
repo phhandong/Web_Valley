@@ -1,9 +1,12 @@
+import { GRASS,newFieldwork,REPAIRS,workTarget } from './fieldwork';
 import { CROPS,ITEMS } from './content';
 import { initialState } from './engine';
 import { add } from './inventory';
 import { SCENES,passable,harvestable,objectKey } from './world';
 import type { GameStateV2 } from './types';
 import { AREAS,LEVEL_XP } from './progression';
+import { newSocial,newFacilities,newEncounters } from './life-state';
+import { validLife } from './life-validation';
 export const SAVE_KEY='creekside-farm-save-v2', BACKUP_KEY=`${SAVE_KEY}-backup`, LEGACY_KEY='creekside-farm-save-v1';
 export interface StorageLike {getItem(key:string):string|null;setItem(key:string,value:string):void}
 const obj=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v);
@@ -26,6 +29,9 @@ export function validSave(raw:unknown):raw is GameStateV2{
   if(!Object.entries(s.ecology.eventReady).every(([key,day])=>events.has(key)&&int(day,1,s.calendar.day+3)))return false;
   if(s.clearedObjects.some((key:string)=>treeKeys.has(key)&&s.ecology.trees[key]===6))return false;
   if(!obj(s.player)||!Object.hasOwn(SCENES,s.player.scene)||!int(s.player.x,1,30)||!int(s.player.y,1,18)||!['up','down','left','right'].includes(s.player.direction)||!passable(s.player.scene,s.player.x,s.player.y,s.clearedObjects,s.ecology.trees))return false;
+  if(!obj(s.fieldwork)||s.fieldwork.version!==1||!obj(s.fieldwork.clearedGrass)||!obj(s.fieldwork.damage)||!Array.isArray(s.fieldwork.repairs)||new Set(s.fieldwork.repairs).size!==s.fieldwork.repairs.length||!s.fieldwork.repairs.every((k:unknown)=>typeof k==='string'&&Object.hasOwn(REPAIRS,k))||!int(s.fieldwork.restDay,0,s.calendar.day))return false;
+  const grasses=new Set(Object.values(GRASS).flat().map(g=>g.key));
+  if(!Object.entries(s.fieldwork.clearedGrass).every(([key,day])=>grasses.has(key)&&int(day,0,s.calendar.day+5)&&(key.startsWith('farm:')?day===0:Number(day)>0)))return false;
   const a=s.player.appearance,v=s.player.vitals;
   if(!obj(a)||!int(a.skin,0,5)||!int(a.hair,0,5)||!int(a.outfit,0,7)||!int(a.hat,-1,5)||!obj(v)||!['health','stamina','hunger'].every(k=>num(v[k],0,100)))return false;
   if(!obj(s.upgrades)||!['farm','tools','rod','bag'].every(k=>int(s.upgrades[k],0,2)))return false;
@@ -52,6 +58,10 @@ export function validSave(raw:unknown):raw is GameStateV2{
   const area=AREAS.find(a=>a.id===s.player.scene);
   if(area&&!s.progression.areas.includes(area.id)&&s.progression.xp<LEVEL_XP[area.level-1])return false;
   if(s.pendingCatch!==null&&!(typeof s.pendingCatch==='string'&&ITEMS[s.pendingCatch]?.kind==='fish'))return false;
+  const targets=Object.values(SCENES).flatMap(scene=>[...scene.objects.filter(harvestable),...scene.nodes.filter(n=>['wood','stone','ore'].includes(n.kind))].map(o=>({key:objectKey(scene.id,o as any),scene:scene.id,x:o.x,y:o.y})));
+  if(!Object.entries(s.fieldwork.damage).every(([key,damage])=>{const target=targets.find(t=>t.key===key);if(!target||!int(damage,1,11)||s.clearedObjects.includes(key))return false;const copy={...s,player:{...s.player,scene:target.scene}} as GameStateV2;return !!workTarget(copy,target.x,target.y)&&!(s.ecology.trees[key]!==undefined&&s.ecology.trees[key]<6);}))return false;
+  if(!validLife(s as GameStateV2))return false;
+  if(!passable(s.player.scene,s.player.x,s.player.y,s.clearedObjects,s.ecology.trees,s.facilities.machines))return false;
   return true;
 }
 export function migrateV1(raw:unknown):GameStateV2|null{
@@ -71,6 +81,10 @@ export function parseSave(text:string):GameStateV2|null{try{
   const value:unknown=JSON.parse(text);
   // Existing V2 farms gain additive defaults without losing their original record.
   if(obj(value)&&value.version===2){
+    if(!Object.hasOwn(value,'social'))value.social=newSocial();
+    if(!Object.hasOwn(value,'facilities'))value.facilities=newFacilities();
+    if(!Object.hasOwn(value,'encounters'))value.encounters=newEncounters(int(value.calendar?.day,1)?value.calendar.day:1);
+    if(!Object.hasOwn(value,'fieldwork'))value.fieldwork=newFieldwork();
     // Do not introduce new farm rocks beneath an existing player or on a cleared route.
     if(!Object.hasOwn(value,'clearedObjects'))value.clearedObjects=['farm:farmrock1','farm:farmrock2'];
     if(!Object.hasOwn(value,'weeds'))value.weeds=[];

@@ -130,3 +130,36 @@ body{font-size:14px}button,input{font-family:"Microsoft YaHei","PingFang SC",san
 .transition{transition:opacity .65s,background .7s;animation:none;background:#17273bf7;overflow:hidden}.transition:before{content:'✦　　☾　　✧';font-size:46px;color:#e7d395;letter-spacing:12px;margin-bottom:6px;animation:sleep-drift 2.2s ease-in-out infinite alternate}.transition[data-phase="dusk"]{animation:sleep-in .65s ease-out}.transition[data-phase="dawn"]{opacity:0;background:#e3c88f;pointer-events:none}.transition p{text-align:center;max-width:85%;line-height:1.7}.transition small{letter-spacing:2px}.transition h2{margin:12px;font-size:32px}
 @keyframes sleep-in{from{opacity:0}to{opacity:1}}@keyframes sleep-drift{from{transform:translateY(4px)}to{transform:translateY(-6px)}}
 @media(prefers-reduced-motion:reduce){.transition,.transition:before{animation:none;transition:none}}
+.canvas-wrap.toolbar-at-top .toolbar-row{flex-wrap:nowrap;gap:6px;width:max-content}
+.canvas-wrap.toolbar-at-top .toolbar{flex-wrap:nowrap;gap:3px;flex-shrink:0}
+.canvas-wrap.toolbar-at-top .toolbar button{width:40px;height:51px}
+.canvas-wrap.toolbar-at-top .toolbar svg{width:27px;height:27px}
+.canvas-wrap.toolbar-at-top .toolbar small{font-size:11px}
+.canvas-wrap.toolbar-at-top .seed-picker{min-width:100px;padding:4px;gap:3px}
+.canvas-wrap.toolbar-at-top .seed-picker>span:first-child{display:none}
+.canvas-wrap.toolbar-at-top .seed-picker b{font-size:11px}
+.canvas-wrap.toolbar-at-top .bag-toggle{min-width:68px;padding:4px;grid-template-columns:1fr}
+.canvas-wrap.toolbar-at-top .bag-toggle svg{display:none}
+.repair-illustration{padding:24px;text-align:center;font-size:38px;letter-spacing:12px;border:1px solid #bcc4a7;background:linear-gradient(#cfdec9,#e8ddbc);color:#587c70}
+/* Valley life: paper notes, warm workshop cards, and a compact placement desk. */
+.life-journal { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 2px solid #b6a782; }
+.person-story { display:flex; gap:20px; align-items:center; margin:20px 0; }
+.person-story canvas { width:96px; height:96px; flex-shrink:0; image-rendering:pixelated; border:3px solid #bca67d; border-radius:8px; }
+.person-story blockquote { margin:0; line-height:1.9; color:#536651; font-family:"STKaiti","KaiTi",serif; font-size:18px; }
+.friend-meter { height:7px; background:#dfd7bf; border-radius:6px; overflow:hidden; }
+.friend-meter i { display:block; height:100%; background:#b57b69; }
+.encounter-note { padding:12px 16px; border-left:3px solid #ae945f; background:#ede7d5; display:grid; gap:6px; line-height:1.6; }
+.encounter-note.completed { opacity:.65; }
+.encounter-note small,.facility-row small { display:block; color:#69755e; }
+.facility-row { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid #d6cbb0; }
+.gift-list { display:flex; flex-wrap:wrap; gap:8px; }
+.machine-emblem { display:grid; place-items:center; width:44px; height:44px; border:2px solid #b19a6b; color:#607b65; background:#e5d9b5; font-size:28px; border-radius:7px; }
+.production-status { background:#e5e9d5; padding:16px; border-radius:7px; color:#526747; }
+.placement-panel { position:absolute; z-index:15; left:12px; top:12px; width:min(345px,50%); padding:14px 18px; background:#f7efdaef; border:2px solid #b39a68; border-radius:9px; box-shadow:0 8px 25px #243c3333; color:#435540; }
+.placement-panel p { margin:8px 0; font-size:13px; line-height:1.6; }
+.placement-panel small { display:block; font-size:11px; line-height:1.5; }
+.placement-panel[data-valid="false"] p { color:#a34944; }
+.placement-panel .button-row { margin:10px 0 0; }
+.placement-panel .action-button { padding:7px 12px; min-height:32px; }
+.placement-panel[hidden] { display:none; }
+@media(max-width:700px) { .person-story{gap:12px}.facility-row{align-items:flex-start;flex-direction:column}.placement-panel{width:260px;max-width:65%;padding:10px}.masthead nav{gap:3px} }

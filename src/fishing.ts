@@ -1,3 +1,4 @@
+import { fishingSpots } from './fieldwork';
 import { FISH } from './content';
 import { canFish,chooseFish,random,spend } from './engine';
 import type { GameStateV2,RNG } from './types';
@@ -5,7 +6,7 @@ import { SCENES } from './world';
 import { FISHING_RECAST_SECONDS } from './balance';
 export function fishingAnchor(state:GameStateV2){
   const scene=SCENES[state.player.scene],p=state.player;
-  const spot=scene.fishing.filter(([x,y])=>Math.abs(x-p.x)+Math.abs(y-p.y)<=1).sort((a,b)=>Math.abs(a[0]-p.x)+Math.abs(a[1]-p.y)-Math.abs(b[0]-p.x)-Math.abs(b[1]-p.y))[0];
+  const spot=fishingSpots(state).filter(([x,y])=>Math.abs(x-p.x)+Math.abs(y-p.y)<=1).sort((a,b)=>Math.abs(a[0]-p.x)+Math.abs(a[1]-p.y)-Math.abs(b[0]-p.x)-Math.abs(b[1]-p.y))[0];
   if(!spot)return null;
   const points=scene.objects.filter(o=>o.kind==='water').map(o=>({x:Math.max(o.x+1.25,Math.min(o.x+o.w-1.25,spot[0]+.5)),y:Math.max(o.y+1.25,Math.min(o.y+o.h-1.25,spot[1]+.5))}));
   return points.sort((a,b)=>Math.hypot(a.x-spot[0],a.y-spot[1])-Math.hypot(b.x-spot[0],b.y-spot[1]))[0]??null;
